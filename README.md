@@ -1,12 +1,12 @@
 # BOMTalk
 
-Although GameKit greatly simplifies Bluetooth and WLan usage with Bonjour serviices in the background, teh API is still unconvenient for most purposes and aging, offering no clean delegate or block based callback mechanism. This is what BOMTalk offers:
+Although GameKit greatly simplifies sharing data between iOS devices over Bluetooth and WLan, the API is unconvenient for most purposes and somehow aging, offering no clean delegate or block based callback mechanism. This is what BOMTalk offers:
 
 - GameKit based with support for Bluetooth and WLan adhoc networks
-- sends and receives arbitrarily sized data (GK limits 50K) conforming to NSCoding
+- sends and receives arbitrarily sized data (no GK limit of 50K)
 - automatically keeps one connection slot open for up to 15 simultaneous connections per session
-- simplifies GameKits weird delegates/class callbacks and states
-- block-based or delegate-protocol or multicast notifications
+- hides GameKits weird delegates/class callbacks and states
+- provides a block-based or delegate-protocol or multicast notifications API
 
 # Installation
 
