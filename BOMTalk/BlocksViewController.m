@@ -13,8 +13,8 @@
 #import "BlocksViewController.h"
 #import "BOMTalk.h"
 
-#define kMessageSendText (101)
-#define kMessageSendImage (102)
+#define kSendText (101)
+#define kSendImage (102)
 
 @interface BlocksViewController ()
 
@@ -26,6 +26,7 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
+	// in order to update the pasteboard regularly
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(startView:) name:UIApplicationWillEnterForegroundNotification object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(stopView:) name:UIApplicationDidEnterBackgroundNotification object:nil];
 }
@@ -48,16 +49,15 @@
 }
 
 - (void) startView: (NSNotification*) notification {
-	DLog(@"");
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	[talker answerToUpdate:^(BOMTalkPeer *sender) {
 		[_listView reloadData];
 	}];
-	[talker answerToMessage:kMessageSendText block:^(BOMTalkPeer *peer, id data) {
+	[talker answerToMessage:kSendText block:^(BOMTalkPeer *peer, id data) {
 		[self showText: (NSString*) data];
 		[[UIPasteboard generalPasteboard] setData: [(NSString*)data dataUsingEncoding:NSUTF8StringEncoding] forPasteboardType:@"public.text"];
 	}];
-	[talker answerToMessage:kMessageSendImage block:^(BOMTalkPeer *peer, id data) {
+	[talker answerToMessage:kSendImage block:^(BOMTalkPeer *peer, id data) {
 		[self showImage: [UIImage imageWithData: data]];
 		[[UIPasteboard generalPasteboard] setData: data forPasteboardType:@"public.jpeg"];
 	}];
@@ -75,7 +75,6 @@
 }
 
 - (void) stopView: (NSNotification*) notification {
-	DLog(@"");
 	[[BOMTalk sharedTalk] stop];
 }
 
@@ -125,9 +124,9 @@
 	BOMTalkPeer *peer = talker.peerList[indexPath.row];
 	[talker connectToPeer: peer success:^(BOMTalkPeer *peer){
 		if (_imageView.hidden)
-			[talker sendMessage:kMessageSendText toPeer:peer withData: _textView.text];
+			[talker sendMessage:kSendText toPeer:peer withData: _textView.text];
 		else
-			[talker sendMessage:kMessageSendImage toPeer:peer withData: UIImageJPEGRepresentation(_imageView.image, 0.9)];
+			[talker sendMessage:kSendImage toPeer:peer withData: UIImageJPEGRepresentation(_imageView.image, 0.9)];
 	}];
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
 }

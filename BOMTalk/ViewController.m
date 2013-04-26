@@ -9,6 +9,7 @@
 #import "ViewController.h"
 #import "BlocksViewController.h"
 #import "DelegatesViewController.h"
+#import "NotifyViewController.h"
 
 @interface ViewController ()
 @property (strong, nonatomic) NSArray *list;
@@ -20,7 +21,7 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
-	_list = @[@"Pasteboard (Blocks)", @"Roll the Dice (Delegates)"];
+	_list = @[@"Pasteboard (Blocks)", @"Roll the Dice (Delegates)", @"Pong (Notifications)"];
 }
 
 - (void) viewDidUnload {
@@ -46,10 +47,15 @@
 - (void) tableView:(UITableView*) tableView didSelectRowAtIndexPath:(NSIndexPath*) indexPath {
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
 	switch (indexPath.row) {
+		case 0:
+			[self.navigationController pushViewController:[[BlocksViewController alloc] initWithNibName:@"BlocksViewController" bundle:nil] animated:YES];
+			break;
 		case 1:
 			[self.navigationController pushViewController:[[DelegatesViewController alloc] initWithNibName:@"DelegatesViewController" bundle:nil] animated:YES];
 			break;
-		default: [self.navigationController pushViewController:[[BlocksViewController alloc] initWithNibName:@"BlocksViewController" bundle:nil] animated:YES];
+		case 2:
+			[self.navigationController pushViewController:[[NotifyViewController alloc] initWithNibName:@"NotifyViewController" bundle:nil] animated:YES];
+			break;
 	}
 }
 

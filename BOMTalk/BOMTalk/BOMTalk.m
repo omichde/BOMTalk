@@ -251,7 +251,7 @@
 			else if (_showBlock)
 				_showBlock (peer);
 			else
-				[self dispatchUpdate: peer];
+				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidShowNotification object: peer]];
 		}
 		break;
 
@@ -265,7 +265,7 @@
 			else if (_hideBlock)
 				_hideBlock (peer);
 			else
-				[self dispatchUpdate: peer];
+				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidHideNotification object: peer]];
 		}
 		break;
 
@@ -273,7 +273,6 @@
 		case GKPeerStateConnecting: {
 			DLog(@"GKPeerStateConnecting %@", peer);
 			peer.state = MAX(BOMTalkPeerStateConnecting, peer.state);
-			[self dispatchUpdate: peer];
 		}
 		break;
 
@@ -291,7 +290,7 @@
 				_connectFailureBlock = nil;
 			}
 			else
-				[self dispatchUpdate: peer];
+				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidConnectNotification object: peer]];
 		}
 		break;
 			
@@ -305,13 +304,11 @@
 			else if (_disconnectBlock)
 				_disconnectBlock (peer);
 			else
-				[self dispatchUpdate: peer];
+				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidDisconnectNotification object: peer]];
 		}
 		break;
 	}
-}
-
-- (void) dispatchUpdate:(BOMTalkPeer*) peer {
+	// fire general update mechanism
 	if ([_delegate respondsToSelector:@selector(talkUpdate:)])
 		[_delegate talkUpdate: peer];
 	else if (_updateBlock)
@@ -320,7 +317,6 @@
 		[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkUpdateNotification object: peer]];
 }
 
-// callback for incoming data
 - (void) receiveData:(NSData*) data fromPeer:(NSString*) peerID inSession: (GKSession*) session context:(void*) context {
 	static BOMTalkPackage *lastPackage = nil;
 	static NSString *lastPeerID = nil;
@@ -329,10 +325,15 @@
 	if (!peer)
 		peer = [[BOMTalkPeer alloc] initWithPeer:peerID name: [_sessionNetwork displayNameForPeer:peerID]];
 	@try {
+		peer.state = BOMTalkPeerStateTransfering;
 		BOMTalkPackage *package = [NSKeyedUnarchiver unarchiveObjectWithData:data];
 		DLog (@"received %@ from %@", package, peer);
-		
+
+		// models one message per peer per sequence
 		if (!lastPackage || ![lastPeerID isEqual:peer.peerID] || ![lastPackage appendPackage:package]) {
+			BOMTalkPeer *lastPeer = [self peerForPeerID: lastPeerID];
+			if (lastPeer && lastPeer.state == BOMTalkPeerStateTransfering)
+				lastPeer.state = BOMTalkPeerStateConnected;
 			lastPackage = nil;
 			lastPeerID = nil;
 			if (!package.index) {
@@ -347,7 +348,7 @@
 	}
 	@finally {
 		if (lastPackage.isComplete) {
-			NSData *lastData = nil;
+			id<NSCoding> lastData = nil;
 			if (lastPackage.data)
 				lastData = [NSKeyedUnarchiver unarchiveObjectWithData:lastPackage.data];
 			if ([_delegate respondsToSelector:@selector(talkReceived:fromPeer:withData:)])
@@ -362,11 +363,11 @@
 					}
 				}
 				if (!blockFired)
-					[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkReceivedNotification object:@{@"messageID": [NSNumber numberWithInt:lastPackage.messageID], @"senderPeer": peer, @"messageData": lastData}]];
+					[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkReceivedNotification object:@{@"messageID": [NSNumber numberWithInt:lastPackage.messageID], @"peer": peer, @"data": lastData}]];
 			}
+			peer.state = BOMTalkPeerStateConnected;
+			lastData = nil;
 			lastPackage = nil;
-			lastPackage = nil;
-			lastPeerID = nil;
 			lastPeerID = nil;
 
 			// GamkeKit has maximum of 16 connections, so keep one slot free

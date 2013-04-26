@@ -4,7 +4,8 @@
 //
 //	a simple roll-the-dice-game
 //	auto-connects to all visible devices
-//	one device starts, all other devices will answer with their rolls, finally initiating device broadcasts the results back
+//	one device starts, all other devices will answer with their rolls, initiating device broadcasts the results back
+//	stores rolled number for all client in custom userInfo dictionary
 //
 //  Created by Oliver Michalak on 24.04.13.
 //  Copyright (c) 2013 Oliver Michalak. All rights reserved.
@@ -29,11 +30,12 @@
 
 - (void) viewWillAppear:(BOOL) animated {
 	[super viewWillAppear:animated];
+	_loadingView.hidden = YES;
+	_numberView.text = _infoView.text = @"";
+
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	talker.delegate = self;
 	[talker startInMode:GKSessionModePeer];
-	_loadingView.hidden = YES;
-	_numberView.text = _infoView.text = @"";
 }
 
 - (void) viewWillDisappear:(BOOL) animated {
@@ -87,7 +89,7 @@
 				else
 					_numberView.textColor = [UIColor redColor];
 				for (BOMTalkPeer *peer in talker.peerList) {
-					if (maxPeer == peer)
+					if ([maxPeer isEqual: peer])
 						[talker sendMessage:kRollWinner toPeer:peer];
 					else
 						[talker sendMessage:kRollLooser toPeer:peer];

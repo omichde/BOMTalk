@@ -9,7 +9,8 @@ typedef enum {
 	BOMTalkPeerStateIdle = 1,
 	BOMTalkPeerStateVisible,
 	BOMTalkPeerStateConnecting,
-	BOMTalkPeerStateConnected
+	BOMTalkPeerStateConnected,
+	BOMTalkPeerStateTransfering
 } BOMTalkPeerState;
 
 @interface BOMTalkPeer : NSObject

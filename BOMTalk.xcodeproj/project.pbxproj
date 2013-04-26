@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DE1527B9172AAB490068A9A0 /* NotifyViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE1527B7172AAB490068A9A0 /* NotifyViewController.m */; };
+		DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */; };
 		DE8394E017250C020088B1FE /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394DF17250C020088B1FE /* UIKit.framework */; };
 		DE8394E217250C020088B1FE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E117250C020088B1FE /* Foundation.framework */; };
 		DE8394E417250C020088B1FE /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E317250C020088B1FE /* CoreGraphics.framework */; };
@@ -30,6 +32,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		DE1527B6172AAB490068A9A0 /* NotifyViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = NotifyViewController.h; sourceTree = "<group>"; };
+		DE1527B7172AAB490068A9A0 /* NotifyViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = NotifyViewController.m; sourceTree = "<group>"; };
+		DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = NotifyViewController.xib; sourceTree = "<group>"; };
 		DE8394DC17250C020088B1FE /* BOMTalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BOMTalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE8394DF17250C020088B1FE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		DE8394E117250C020088B1FE /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -77,6 +82,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		DE1527B5172AAB330068A9A0 /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */,
+				DE1527B6172AAB490068A9A0 /* NotifyViewController.h */,
+				DE1527B7172AAB490068A9A0 /* NotifyViewController.m */,
+			);
+			name = Notifications;
+			sourceTree = "<group>";
+		};
 		DE8394D317250C020088B1FE = {
 			isa = PBXGroup;
 			children = (
@@ -117,6 +132,7 @@
 				DE8394F817250C020088B1FE /* ViewController.m */,
 				DE9098941727C0C2008D8153 /* Blocks */,
 				DE90989A1727C5B8008D8153 /* Delegates */,
+				DE1527B5172AAB330068A9A0 /* Notifications */,
 				DE8394E617250C020088B1FE /* Supporting Files */,
 			);
 			name = Sample;
@@ -229,6 +245,7 @@
 				DE9098991727C0E6008D8153 /* BlocksViewController.xib in Resources */,
 				DE90989F1727C5CE008D8153 /* DelegatesViewController.xib in Resources */,
 				DE8AD19A172982BB0040B131 /* README.md in Resources */,
+				DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,6 +264,7 @@
 				DE83950E17250CA50088B1FE /* BOMTalkPeer.m in Sources */,
 				DE9098981727C0E6008D8153 /* BlocksViewController.m in Sources */,
 				DE90989E1727C5CE008D8153 /* DelegatesViewController.m in Sources */,
+				DE1527B9172AAB490068A9A0 /* NotifyViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
