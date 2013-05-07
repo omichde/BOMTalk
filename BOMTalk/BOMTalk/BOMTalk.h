@@ -40,6 +40,10 @@ typedef void (^BOMTalkErrorBlock)(NSError *error);
 @property (nonatomic, strong) NSMutableArray *peerList;
 @property (weak, nonatomic) id<BOMTalkDelegate>delegate;
 
+#ifdef DEBUG
+- (void) debugFromViewController:(UIViewController*) sourceViewController;
+#endif
+
 + (BOMTalk*) sharedTalk;
 - (void) startInMode:(GKSessionMode) mode;
 - (void) startInMode:(GKSessionMode) mode didShow:(BOMTalkBlock) showBlock didHide:(BOMTalkBlock) hideBlock didConnect:(BOMTalkBlock) connectBlock didDisconnect:(BOMTalkBlock) disconnectBlock;

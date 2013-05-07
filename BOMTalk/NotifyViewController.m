@@ -10,7 +10,10 @@
 #import "BOMTalk.h"
 
 #define kGameStart (301)
-#define kGameCoords (302)
+#define kGameBall (302)
+#define kGameCheck (303)
+#define kGameHit (304)
+#define kGameMissed (305)
 
 #define kXFactor (3.0)
 
@@ -18,6 +21,10 @@
 @property (assign, nonatomic) int counter;
 @property (strong, nonatomic) NSTimer *timer;
 @property (assign, nonatomic) CGPoint vector;
+@property (assign, nonatomic) BOOL asServer;	// neither server nor client means local game
+@property (assign, nonatomic) BOOL asClient;
+@property (assign, nonatomic) BOOL waitingForClient;
+@property (assign, nonatomic) CGFloat clientRacket;
 @end
 
 @implementation NotifyViewController
@@ -31,7 +38,7 @@
 
 - (void) viewWillAppear:(BOOL)animated {
 	[super viewWillAppear:animated];
-	_timer = [NSTimer scheduledTimerWithTimeInterval:0.02 target:self selector:@selector(update:) userInfo:nil repeats:YES];
+	_timer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(update:) userInfo:nil repeats:YES];
 	[self reset];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateTalk:) name:kBOMTalkUpdateNotification object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(errorTalk:) name:kBOMTalkFailedNotification object:nil];
@@ -62,25 +69,45 @@
 	[_listView reloadData];
 }
 
-- (void) errorTalk:(NSNotification*) notification {
+- (void) errorTalk: (NSNotification*) notification {
 	_listView.hidden = NO;
 	[self reset];
 }
 
 - (void) connectedTalk: (NSNotification*) notification {
+	DLog(@"connected");
 	BOMTalkPeer *peer = notification.object;
 	_listView.hidden = YES;
+	_asServer = YES;
 	[[BOMTalk sharedTalk] sendMessage:kGameStart toPeer:peer];
 }
 
 - (void) receivedTalk: (NSNotification*) notification {
+	DLog(@"received %@", notification);
+	BOMTalk *talker = [BOMTalk sharedTalk];
 	BOMTalkPeer *peer = notification.object[@"peer"];
 	NSNumber *message = notification.object[@"messageID"];
-	id data = notification.object[@"data"];
+//	id data = notification.object[@"data"];
 	switch (message.integerValue) {
 		case kGameStart:
+			[self reset];
+			_listView.hidden = YES;
+			_asServer = NO;
+			_asClient = YES;
 			break;
-		case kGameCoords:
+		case kGameBall:
+			DLog(@"balled");
+			_ballView.center = CGPointMake([notification.object[@"data"][@"x"] floatValue], [notification.object[@"data"][@"y"] floatValue]);
+			break;
+		case kGameCheck:
+			[talker sendMessage: kGameHit toPeer:peer];
+			break;
+		case kGameHit:
+			_vector.y -= 1;	// increase speed
+			_vector.y *= -1;
+			[self update:nil];
+			break;
+		case kGameMissed:
 			break;
 	}
 	_listView.hidden = YES;
@@ -91,10 +118,11 @@
 	_ballView.center = CGPointMake(CGRectGetMidX(self.view.frame), CGRectGetMinY(_areaView.frame));
 	_vector = CGPointMake ((0.1 + kXFactor * (CGFloat)(random() % 100) / 100.0) * (random() % 10 >= 5 ? 1 : -1), 2);
 	self.title = [NSString stringWithFormat:@"Pong: %d", _counter];
+	_asServer = _asClient = NO;
 }
 
 - (void) update:(NSNotification*) notification {
-	if (!_listView.hidden)
+	if (!_listView.hidden || _asClient || _waitingForClient)
 		return;
 	CGPoint pos = CGPointMake(_ballView.center.x + _vector.x, _ballView.center.y + _vector.y);
 	if (!CGRectContainsPoint(_areaView.frame, pos)) {
@@ -103,9 +131,16 @@
 			pos = CGPointMake(_ballView.center.x + _vector.x, _ballView.center.y + _vector.y);
 		}
 		if (pos.y < CGRectGetMinY(_areaView.frame)) {
-			_vector.y -= 1;	// increase speed
-			_vector.y *= -1;
-			pos = CGPointMake(_ballView.center.x + _vector.x, _ballView.center.y + _vector.y);
+			if (_asServer) {
+				_waitingForClient = YES;
+				[[BOMTalk sharedTalk] sendToAllMessage:kGameCheck withData: @{@"x": [NSNumber numberWithFloat:pos.x], @"y": [NSNumber numberWithFloat:pos.y]}];
+				return;
+			}
+			else {
+				_vector.y -= 1;	// increase speed
+				_vector.y *= -1;
+				pos = CGPointMake(_ballView.center.x + _vector.x, _ballView.center.y + _vector.y);
+			}
 		}
 		if (pos.y > CGRectGetMaxY(_areaView.frame)) {
 			if (CGRectContainsPoint(_racketView.frame, CGPointMake (pos.x, pos.y + CGRectGetHeight(_ballView.frame) / 2.0))) {
@@ -121,6 +156,8 @@
 		}
 	}
 	_ballView.center = pos;
+	if (_asServer)
+		[[BOMTalk sharedTalk] sendToAllMessage:kGameBall withData: @{@"x": [NSNumber numberWithFloat:_ballView.center.x], @"y": [NSNumber numberWithFloat:_ballView.center.y]}];
 }
 
 - (IBAction) slide {
@@ -149,6 +186,8 @@
 	if (peer.state == BOMTalkPeerStateConnected) {
 		_listView.hidden = YES;
 		[talker sendMessage:kGameStart toPeer:peer];
+		_asServer = YES;
+		_asClient = NO;
 	}
 	else
 		[talker connectToPeer: peer];

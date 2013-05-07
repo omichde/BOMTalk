@@ -34,6 +34,7 @@
 - (void) viewWillAppear:(BOOL)animated {
 	[super viewWillAppear:animated];
 	[self startView:nil];
+	[[BOMTalk sharedTalk] debugFromViewController: self];
 }
 
 - (void) viewWillDisappear:(BOOL)animated {

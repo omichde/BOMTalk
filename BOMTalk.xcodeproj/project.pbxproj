@@ -29,6 +29,9 @@
 		DE9098991727C0E6008D8153 /* BlocksViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE9098971727C0E6008D8153 /* BlocksViewController.xib */; };
 		DE90989E1727C5CE008D8153 /* DelegatesViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE90989C1727C5CE008D8153 /* DelegatesViewController.m */; };
 		DE90989F1727C5CE008D8153 /* DelegatesViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */; };
+		DE9367D8172FD6C70086AF94 /* BOMTalkDebugEvent.m in Sources */ = {isa = PBXBuildFile; fileRef = DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */; };
+		DE9367DE172FF9810086AF94 /* BOMTalkDebugViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */; };
+		DE9367DF172FF9810086AF94 /* BOMTalkDebugViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -65,6 +68,11 @@
 		DE90989B1727C5CE008D8153 /* DelegatesViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DelegatesViewController.h; sourceTree = "<group>"; };
 		DE90989C1727C5CE008D8153 /* DelegatesViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DelegatesViewController.m; sourceTree = "<group>"; };
 		DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = DelegatesViewController.xib; sourceTree = "<group>"; };
+		DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugEvent.h; sourceTree = "<group>"; };
+		DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugEvent.m; sourceTree = "<group>"; };
+		DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugViewController.h; sourceTree = "<group>"; };
+		DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugViewController.m; sourceTree = "<group>"; };
+		DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = BOMTalkDebugViewController.xib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +170,11 @@
 				DE83950917250CA50088B1FE /* BOMTalkPackage.m */,
 				DE83950A17250CA50088B1FE /* BOMTalkPeer.h */,
 				DE83950B17250CA50088B1FE /* BOMTalkPeer.m */,
+				DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */,
+				DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */,
+				DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */,
+				DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */,
+				DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */,
 			);
 			path = BOMTalk;
 			sourceTree = "<group>";
@@ -246,6 +259,7 @@
 				DE90989F1727C5CE008D8153 /* DelegatesViewController.xib in Resources */,
 				DE8AD19A172982BB0040B131 /* README.md in Resources */,
 				DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */,
+				DE9367DF172FF9810086AF94 /* BOMTalkDebugViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -265,6 +279,8 @@
 				DE9098981727C0E6008D8153 /* BlocksViewController.m in Sources */,
 				DE90989E1727C5CE008D8153 /* DelegatesViewController.m in Sources */,
 				DE1527B9172AAB490068A9A0 /* NotifyViewController.m in Sources */,
+				DE9367D8172FD6C70086AF94 /* BOMTalkDebugEvent.m in Sources */,
+				DE9367DE172FF9810086AF94 /* BOMTalkDebugViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
