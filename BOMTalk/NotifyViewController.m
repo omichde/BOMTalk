@@ -31,6 +31,7 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
+	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerShow)];
 	srandom(time(NULL));
 	_slideView.value = 0.5;
 	[self slide];
@@ -64,6 +65,18 @@
 	_listView = nil;
 	[super viewDidUnload];
 }
+
+- (void) debuggerShow {
+	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerHide)];
+	[[BOMTalk sharedTalk] showDebuggerFromViewController: self];
+}
+
+- (void) debuggerHide {
+	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerShow)];
+	[[BOMTalk sharedTalk] hideDebugger];
+}
+
+#pragma mark talk notifications callbacks
 
 - (void) updateTalk: (NSNotification*) notification {
 	[_listView reloadData];

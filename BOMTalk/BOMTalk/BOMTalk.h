@@ -8,10 +8,6 @@
 #import "BOMTalkPackage.h"
 #import "BOMTalkPeer.h"
 
-typedef void (^BOMTalkBlock)(BOMTalkPeer *sender);
-typedef void (^BOMTalkMessageBlock)(BOMTalkPeer *sender, id<NSCoding> data);
-typedef void (^BOMTalkErrorBlock)(NSError *error);
-
 @protocol BOMTalkDelegate <NSObject>
 @optional
 - (void) talkDidShow:(BOMTalkPeer*) peer;
@@ -21,6 +17,8 @@ typedef void (^BOMTalkErrorBlock)(NSError *error);
 - (void) talkReceived:(NSInteger) messageID fromPeer:(BOMTalkPeer*) sender withData:(id<NSCoding>) data;
 - (void) talkUpdate:(BOMTalkPeer*) peer;
 - (void) talkFailed:(NSError*) error;
+- (void) talkProgressForReceiving:(float) progress;
+- (void) talkProgressForSending:(float) progress;
 @end
 
 #define kBOMTalkDidShowNotification @"BOMTalkDidShowNotification"
@@ -30,6 +28,13 @@ typedef void (^BOMTalkErrorBlock)(NSError *error);
 #define kBOMTalkReceivedNotification @"BOMTalkReceivedNotification"
 #define kBOMTalkUpdateNotification @"BOMTalkUpdateNotification"
 #define kBOMTalkFailedNotification @"BOMTalkFailedNotification"
+#define kBOMTalkProgressForReceivingNotification @"BOMTalkProgressForReceivingNotification"
+#define kBOMTalkProgressForSendingNotification @"BOMTalkProgressForSendingNotification"
+
+typedef void (^BOMTalkBlock)(BOMTalkPeer *sender);
+typedef void (^BOMTalkMessageBlock)(BOMTalkPeer *sender, id<NSCoding> data);
+typedef void (^BOMTalkErrorBlock)(NSError *error);
+typedef void (^BOMTalkProgressBlock)(float progress);
 
 @interface BOMTalk : NSObject <GKSessionDelegate>
 
@@ -41,7 +46,8 @@ typedef void (^BOMTalkErrorBlock)(NSError *error);
 @property (weak, nonatomic) id<BOMTalkDelegate>delegate;
 
 #ifdef DEBUG
-- (void) debugFromViewController:(UIViewController*) sourceViewController;
+- (void) showDebuggerFromViewController:(UIViewController*) sourceViewController;
+- (void) hideDebugger;
 #endif
 
 + (BOMTalk*) sharedTalk;
@@ -56,6 +62,8 @@ typedef void (^BOMTalkErrorBlock)(NSError *error);
 - (void) answerToMessage:(NSInteger) messageID block: (BOMTalkMessageBlock) block;
 - (void) answerToUpdate: (BOMTalkBlock) block;
 - (void) answerToFailure: (BOMTalkErrorBlock) block;
+- (void) progressForReceiving: (BOMTalkProgressBlock) block;
+- (void) progressForSending: (BOMTalkProgressBlock) block;
 
 - (BOMTalkPeer*) peerForPeerID:(NSString*) peerID;
 
@@ -66,7 +74,8 @@ typedef void (^BOMTalkErrorBlock)(NSError *error);
 
 - (void) sendToAllMessage:(int) messageID;
 - (void) sendToAllMessage:(int) messageID withData:(id<NSCoding>) data;
-- (BOOL) sendMessage:(int) messageID toPeer:(BOMTalkPeer*) peer;
-- (BOOL) sendMessage:(int) messageID toPeer:(BOMTalkPeer*) peer withData:(id<NSCoding>) data;
+- (void) sendMessage:(int) messageID toPeer:(BOMTalkPeer*) peer;
+- (void) sendMessage:(int) messageID toPeer:(BOMTalkPeer*) peer withData:(id<NSCoding>) data;
+//- (void) sendMessage:(int) messageID toPeer:(BOMTalkPeer*) peer withData:(id<NSCoding>) data progress:(BOMTalkProgressBlock) progressBlock;
 
 @end

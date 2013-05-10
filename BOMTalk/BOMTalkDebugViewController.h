@@ -11,9 +11,9 @@
 
 @interface BOMTalkDebugViewController : UIViewController
 
+@property (strong, nonatomic) IBOutlet UIView *backContainer;
 @property (strong, nonatomic) IBOutlet UIScrollView *scrollContainer;
 
-- (IBAction) closeView;
 - (void) addEvent: (BOMTalkDebugEvent*) event;
 
 @end

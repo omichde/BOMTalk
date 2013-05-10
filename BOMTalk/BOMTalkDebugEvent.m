@@ -27,4 +27,9 @@
 	}
 	return self;
 }
+
+- (NSString*) description {
+	return [NSString stringWithFormat:@"%@: %@", _timestamp, _message];
+}
+
 @end
