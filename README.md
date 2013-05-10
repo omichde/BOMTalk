@@ -1,10 +1,10 @@
 # BOMTalk
 
-Although GameKit greatly simplifies sharing data between iOS devices over Bluetooth and WLan, the API is unconvenient for most purposes and somehow aging, offering no clean delegate or block based callback mechanism. This is what BOMTalk offers:
+A rather unknown part of GameKit is its ad hoc networking between devices by means of Bluetooth or WiFi using Bonjour services. This immensly simplifies sharing data between iOS devices, but the API is unconvenient for most purposes and somehow aging, offering no clean delegate or block based callback mechanism. This is what BOMTalk offers:
 
-- GameKit based with support for Bluetooth and WLan adhoc networks
-- provides a block-based or delegate-protocol or multicast notifications API
-- sends and receives arbitrarily sized data (no GK limit of 50K)
+- GameKit based with support for Bluetooth and WiFi ad hoc networks
+- provides either a block-based or delegate-protocol or (multicast) notifications API
+- sends and receives arbitrarily sized data (no GameKit limit)
 - automatically keeps one connection slot open for up to 15 simultaneous connections per session
 - hides GameKits weird delegates/class callbacks and states
 
@@ -18,6 +18,36 @@ Although GameKit greatly simplifies sharing data between iOS devices over Blueto
 
 # Version
 
+## 0.8:
+
+- basic network debug view controller
+- multiplayer pong basically working
+
+## 0.7:
+
+- prepared pong game for multiplayer
+
+## 0.6:
+
+- new sample: pong game (local mode only)
+
+## 0.5:
+
+- streamlined API for blocks, delegates and notifications
+
+## 0.4:
+
+- progress API
+
+## 0.3:
+
+- merged some callbacks
+- refined API
+
+## 0.2:
+
+- expanded delegates
+
 ## 0.1:
 
 - two samples: Pasteboard, Roll-the-Dice
@@ -28,7 +58,7 @@ Oliver Michalak - [oliver@werk01.de](mailto:oliver@werk01.de) - [@omichde](http:
 
 ## Tags
 
-iOS, GameKit, Bluetooth, WLan, adhoc, network, blocks, delegate, multicast
+iOS, GameKit, Bluetooth, WiFi, ad hoc, network, blocks, delegate, multicast
 
 ## License
 

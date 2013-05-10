@@ -5,6 +5,11 @@
 
 #import "BOMTalkPackage.h"
 
+@interface BOMTalkPackage ()
+@property (assign, nonatomic) NSInteger index;
+@property (assign, nonatomic) NSInteger counter;
+@end
+
 @implementation BOMTalkPackage
 
 - (id) init {
@@ -57,10 +62,18 @@
 	return NO;
 }
 
+- (BOOL) isHead {
+	return (!_index);
+}
+
 - (BOOL) isComplete {
 	if (_index+1 == _counter)
 		return YES;
 	return NO;
+}
+
+- (float) progress {
+	return ((float) _index+1) / (float) _counter;
 }
 
 - (NSString*) description {

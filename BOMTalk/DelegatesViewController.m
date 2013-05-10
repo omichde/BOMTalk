@@ -25,6 +25,9 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
+#ifdef BOMTalkDebug
+	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerShow)];
+#endif
 	srandom(time(NULL));
 }
 
@@ -50,6 +53,18 @@
 	_infoView = nil;
 	[super viewDidUnload];
 }
+
+#ifdef BOMTalkDebug
+- (void) debuggerShow {
+	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerHide)];
+	[[BOMTalk sharedTalk] showDebuggerFromViewController: self];
+}
+
+- (void) debuggerHide {
+	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerShow)];
+	[[BOMTalk sharedTalk] hideDebugger];
+}
+#endif
 
 #pragma mark talk delegates
 
