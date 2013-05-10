@@ -68,11 +68,11 @@
 		DE90989B1727C5CE008D8153 /* DelegatesViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DelegatesViewController.h; sourceTree = "<group>"; };
 		DE90989C1727C5CE008D8153 /* DelegatesViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DelegatesViewController.m; sourceTree = "<group>"; };
 		DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = DelegatesViewController.xib; sourceTree = "<group>"; };
-		DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugEvent.h; sourceTree = "<group>"; };
-		DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugEvent.m; sourceTree = "<group>"; };
-		DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugViewController.h; sourceTree = "<group>"; };
-		DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugViewController.m; sourceTree = "<group>"; };
-		DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = BOMTalkDebugViewController.xib; sourceTree = "<group>"; };
+		DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalkDebugEvent.h; path = BOMTalk/BOMTalkDebugEvent.h; sourceTree = "<group>"; };
+		DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalkDebugEvent.m; path = BOMTalk/BOMTalkDebugEvent.m; sourceTree = "<group>"; };
+		DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalkDebugViewController.h; path = BOMTalk/BOMTalkDebugViewController.h; sourceTree = "<group>"; };
+		DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalkDebugViewController.m; path = BOMTalk/BOMTalkDebugViewController.m; sourceTree = "<group>"; };
+		DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = BOMTalkDebugViewController.xib; path = BOMTalk/BOMTalkDebugViewController.xib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
