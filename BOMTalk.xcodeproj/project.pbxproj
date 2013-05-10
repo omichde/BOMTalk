@@ -9,17 +9,17 @@
 /* Begin PBXBuildFile section */
 		DE1527B9172AAB490068A9A0 /* NotifyViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE1527B7172AAB490068A9A0 /* NotifyViewController.m */; };
 		DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */; };
+		DE2A781A173D637D00C79BBB /* ViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE2A7819173D637D00C79BBB /* ViewController.xib */; };
+		DE2A781C173D63B000C79BBB /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = DE2A781B173D63B000C79BBB /* InfoPlist.strings */; };
 		DE8394E017250C020088B1FE /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394DF17250C020088B1FE /* UIKit.framework */; };
 		DE8394E217250C020088B1FE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E117250C020088B1FE /* Foundation.framework */; };
 		DE8394E417250C020088B1FE /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E317250C020088B1FE /* CoreGraphics.framework */; };
-		DE8394EA17250C020088B1FE /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = DE8394E817250C020088B1FE /* InfoPlist.strings */; };
 		DE8394EC17250C020088B1FE /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = DE8394EB17250C020088B1FE /* main.m */; };
 		DE8394F017250C020088B1FE /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = DE8394EF17250C020088B1FE /* AppDelegate.m */; };
 		DE8394F217250C020088B1FE /* Default.png in Resources */ = {isa = PBXBuildFile; fileRef = DE8394F117250C020088B1FE /* Default.png */; };
 		DE8394F417250C020088B1FE /* Default@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = DE8394F317250C020088B1FE /* Default@2x.png */; };
 		DE8394F617250C020088B1FE /* Default-568h@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = DE8394F517250C020088B1FE /* Default-568h@2x.png */; };
 		DE8394F917250C020088B1FE /* ViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE8394F817250C020088B1FE /* ViewController.m */; };
-		DE8394FC17250C030088B1FE /* ViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE8394FA17250C030088B1FE /* ViewController.xib */; };
 		DE83950C17250CA50088B1FE /* BOMTalk.m in Sources */ = {isa = PBXBuildFile; fileRef = DE83950717250CA50088B1FE /* BOMTalk.m */; };
 		DE83950D17250CA50088B1FE /* BOMTalkPackage.m in Sources */ = {isa = PBXBuildFile; fileRef = DE83950917250CA50088B1FE /* BOMTalkPackage.m */; };
 		DE83950E17250CA50088B1FE /* BOMTalkPeer.m in Sources */ = {isa = PBXBuildFile; fileRef = DE83950B17250CA50088B1FE /* BOMTalkPeer.m */; };
@@ -35,44 +35,44 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		DE1527B6172AAB490068A9A0 /* NotifyViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = NotifyViewController.h; sourceTree = "<group>"; };
-		DE1527B7172AAB490068A9A0 /* NotifyViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = NotifyViewController.m; sourceTree = "<group>"; };
-		DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = NotifyViewController.xib; sourceTree = "<group>"; };
+		DE1527B6172AAB490068A9A0 /* NotifyViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = NotifyViewController.h; path = ../Sample/NotifyViewController.h; sourceTree = "<group>"; };
+		DE1527B7172AAB490068A9A0 /* NotifyViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = NotifyViewController.m; path = ../Sample/NotifyViewController.m; sourceTree = "<group>"; };
+		DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = NotifyViewController.xib; path = ../Sample/NotifyViewController.xib; sourceTree = "<group>"; };
+		DE2A7819173D637D00C79BBB /* ViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = ViewController.xib; path = Sample/ViewController.xib; sourceTree = SOURCE_ROOT; };
+		DE2A781B173D63B000C79BBB /* InfoPlist.strings */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = Sample/InfoPlist.strings; sourceTree = SOURCE_ROOT; };
 		DE8394DC17250C020088B1FE /* BOMTalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BOMTalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE8394DF17250C020088B1FE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		DE8394E117250C020088B1FE /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		DE8394E317250C020088B1FE /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
-		DE8394E717250C020088B1FE /* BOMTalk-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "BOMTalk-Info.plist"; sourceTree = "<group>"; };
-		DE8394E917250C020088B1FE /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
-		DE8394EB17250C020088B1FE /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
-		DE8394ED17250C020088B1FE /* BOMTalk-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "BOMTalk-Prefix.pch"; sourceTree = "<group>"; };
-		DE8394EE17250C020088B1FE /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
-		DE8394EF17250C020088B1FE /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
-		DE8394F117250C020088B1FE /* Default.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Default.png; sourceTree = "<group>"; };
-		DE8394F317250C020088B1FE /* Default@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default@2x.png"; sourceTree = "<group>"; };
-		DE8394F517250C020088B1FE /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Default-568h@2x.png"; sourceTree = "<group>"; };
-		DE8394F717250C020088B1FE /* ViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
-		DE8394F817250C020088B1FE /* ViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ViewController.m; sourceTree = "<group>"; };
-		DE8394FB17250C030088B1FE /* en */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = en; path = en.lproj/ViewController.xib; sourceTree = "<group>"; };
-		DE83950617250CA50088B1FE /* BOMTalk.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalk.h; path = BOMTalk/BOMTalk.h; sourceTree = "<group>"; };
-		DE83950717250CA50088B1FE /* BOMTalk.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalk.m; path = BOMTalk/BOMTalk.m; sourceTree = "<group>"; };
-		DE83950817250CA50088B1FE /* BOMTalkPackage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalkPackage.h; path = BOMTalk/BOMTalkPackage.h; sourceTree = "<group>"; };
-		DE83950917250CA50088B1FE /* BOMTalkPackage.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalkPackage.m; path = BOMTalk/BOMTalkPackage.m; sourceTree = "<group>"; };
-		DE83950A17250CA50088B1FE /* BOMTalkPeer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalkPeer.h; path = BOMTalk/BOMTalkPeer.h; sourceTree = "<group>"; };
-		DE83950B17250CA50088B1FE /* BOMTalkPeer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalkPeer.m; path = BOMTalk/BOMTalkPeer.m; sourceTree = "<group>"; };
+		DE8394E717250C020088B1FE /* BOMTalk-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "BOMTalk-Info.plist"; path = "../Sample/BOMTalk-Info.plist"; sourceTree = "<group>"; };
+		DE8394EB17250C020088B1FE /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = main.m; path = ../Sample/main.m; sourceTree = "<group>"; };
+		DE8394ED17250C020088B1FE /* BOMTalk-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "BOMTalk-Prefix.pch"; path = "../Sample/BOMTalk-Prefix.pch"; sourceTree = "<group>"; };
+		DE8394EE17250C020088B1FE /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AppDelegate.h; path = ../Sample/AppDelegate.h; sourceTree = "<group>"; };
+		DE8394EF17250C020088B1FE /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AppDelegate.m; path = ../Sample/AppDelegate.m; sourceTree = "<group>"; };
+		DE8394F117250C020088B1FE /* Default.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Default.png; path = ../Sample/Default.png; sourceTree = "<group>"; };
+		DE8394F317250C020088B1FE /* Default@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "Default@2x.png"; path = "../Sample/Default@2x.png"; sourceTree = "<group>"; };
+		DE8394F517250C020088B1FE /* Default-568h@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "Default-568h@2x.png"; path = "../Sample/Default-568h@2x.png"; sourceTree = "<group>"; };
+		DE8394F717250C020088B1FE /* ViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ViewController.h; path = ../Sample/ViewController.h; sourceTree = "<group>"; };
+		DE8394F817250C020088B1FE /* ViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ViewController.m; path = ../Sample/ViewController.m; sourceTree = "<group>"; };
+		DE83950617250CA50088B1FE /* BOMTalk.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalk.h; sourceTree = "<group>"; };
+		DE83950717250CA50088B1FE /* BOMTalk.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalk.m; sourceTree = "<group>"; };
+		DE83950817250CA50088B1FE /* BOMTalkPackage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkPackage.h; sourceTree = "<group>"; };
+		DE83950917250CA50088B1FE /* BOMTalkPackage.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkPackage.m; sourceTree = "<group>"; };
+		DE83950A17250CA50088B1FE /* BOMTalkPeer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkPeer.h; sourceTree = "<group>"; };
+		DE83950B17250CA50088B1FE /* BOMTalkPeer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkPeer.m; sourceTree = "<group>"; };
 		DE83950F172554C50088B1FE /* GameKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameKit.framework; path = System/Library/Frameworks/GameKit.framework; sourceTree = SDKROOT; };
 		DE8AD199172982BB0040B131 /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = README.md; sourceTree = "<group>"; };
-		DE9098951727C0E6008D8153 /* BlocksViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BlocksViewController.h; sourceTree = "<group>"; };
-		DE9098961727C0E6008D8153 /* BlocksViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BlocksViewController.m; sourceTree = "<group>"; };
-		DE9098971727C0E6008D8153 /* BlocksViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = BlocksViewController.xib; sourceTree = "<group>"; };
-		DE90989B1727C5CE008D8153 /* DelegatesViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DelegatesViewController.h; sourceTree = "<group>"; };
-		DE90989C1727C5CE008D8153 /* DelegatesViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DelegatesViewController.m; sourceTree = "<group>"; };
-		DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = DelegatesViewController.xib; sourceTree = "<group>"; };
-		DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalkDebugEvent.h; path = BOMTalk/BOMTalkDebugEvent.h; sourceTree = "<group>"; };
-		DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalkDebugEvent.m; path = BOMTalk/BOMTalkDebugEvent.m; sourceTree = "<group>"; };
-		DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BOMTalkDebugViewController.h; path = BOMTalk/BOMTalkDebugViewController.h; sourceTree = "<group>"; };
-		DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BOMTalkDebugViewController.m; path = BOMTalk/BOMTalkDebugViewController.m; sourceTree = "<group>"; };
-		DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = BOMTalkDebugViewController.xib; path = BOMTalk/BOMTalkDebugViewController.xib; sourceTree = "<group>"; };
+		DE9098951727C0E6008D8153 /* BlocksViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BlocksViewController.h; path = ../Sample/BlocksViewController.h; sourceTree = "<group>"; };
+		DE9098961727C0E6008D8153 /* BlocksViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BlocksViewController.m; path = ../Sample/BlocksViewController.m; sourceTree = "<group>"; };
+		DE9098971727C0E6008D8153 /* BlocksViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = BlocksViewController.xib; path = ../Sample/BlocksViewController.xib; sourceTree = "<group>"; };
+		DE90989B1727C5CE008D8153 /* DelegatesViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = DelegatesViewController.h; path = ../Sample/DelegatesViewController.h; sourceTree = "<group>"; };
+		DE90989C1727C5CE008D8153 /* DelegatesViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = DelegatesViewController.m; path = ../Sample/DelegatesViewController.m; sourceTree = "<group>"; };
+		DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = DelegatesViewController.xib; path = ../Sample/DelegatesViewController.xib; sourceTree = "<group>"; };
+		DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugEvent.h; sourceTree = "<group>"; };
+		DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugEvent.m; sourceTree = "<group>"; };
+		DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugViewController.h; sourceTree = "<group>"; };
+		DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugViewController.m; sourceTree = "<group>"; };
+		DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = BOMTalkDebugViewController.xib; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -135,7 +135,7 @@
 			children = (
 				DE8394EE17250C020088B1FE /* AppDelegate.h */,
 				DE8394EF17250C020088B1FE /* AppDelegate.m */,
-				DE8394FA17250C030088B1FE /* ViewController.xib */,
+				DE2A7819173D637D00C79BBB /* ViewController.xib */,
 				DE8394F717250C020088B1FE /* ViewController.h */,
 				DE8394F817250C020088B1FE /* ViewController.m */,
 				DE9098941727C0C2008D8153 /* Blocks */,
@@ -151,7 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				DE8394E717250C020088B1FE /* BOMTalk-Info.plist */,
-				DE8394E817250C020088B1FE /* InfoPlist.strings */,
+				DE2A781B173D63B000C79BBB /* InfoPlist.strings */,
 				DE8394EB17250C020088B1FE /* main.m */,
 				DE8394ED17250C020088B1FE /* BOMTalk-Prefix.pch */,
 				DE8394F117250C020088B1FE /* Default.png */,
@@ -251,16 +251,16 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DE8394EA17250C020088B1FE /* InfoPlist.strings in Resources */,
 				DE8394F217250C020088B1FE /* Default.png in Resources */,
 				DE8394F417250C020088B1FE /* Default@2x.png in Resources */,
 				DE8394F617250C020088B1FE /* Default-568h@2x.png in Resources */,
-				DE8394FC17250C030088B1FE /* ViewController.xib in Resources */,
 				DE9098991727C0E6008D8153 /* BlocksViewController.xib in Resources */,
 				DE90989F1727C5CE008D8153 /* DelegatesViewController.xib in Resources */,
 				DE8AD19A172982BB0040B131 /* README.md in Resources */,
 				DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */,
 				DE9367DF172FF9810086AF94 /* BOMTalkDebugViewController.xib in Resources */,
+				DE2A781A173D637D00C79BBB /* ViewController.xib in Resources */,
+				DE2A781C173D63B000C79BBB /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,25 +303,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXVariantGroup section */
-		DE8394E817250C020088B1FE /* InfoPlist.strings */ = {
-			isa = PBXVariantGroup;
-			children = (
-				DE8394E917250C020088B1FE /* en */,
-			);
-			name = InfoPlist.strings;
-			sourceTree = "<group>";
-		};
-		DE8394FA17250C030088B1FE /* ViewController.xib */ = {
-			isa = PBXVariantGroup;
-			children = (
-				DE8394FB17250C030088B1FE /* en */,
-			);
-			name = ViewController.xib;
-			sourceTree = "<group>";
-		};
-/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		DE83950017250C030088B1FE /* Debug */ = {
@@ -386,8 +367,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "BOMTalk/BOMTalk-Prefix.pch";
-				INFOPLIST_FILE = "BOMTalk/BOMTalk-Info.plist";
+				GCC_PREFIX_HEADER = "Sample/BOMTalk-Prefix.pch";
+				INFOPLIST_FILE = "$(SRCROOT)/Sample/BOMTalk-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 5.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -399,8 +380,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "BOMTalk/BOMTalk-Prefix.pch";
-				INFOPLIST_FILE = "BOMTalk/BOMTalk-Info.plist";
+				GCC_PREFIX_HEADER = "Sample/BOMTalk-Prefix.pch";
+				INFOPLIST_FILE = "$(SRCROOT)/Sample/BOMTalk-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 5.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = 1;
