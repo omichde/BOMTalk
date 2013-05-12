@@ -8,7 +8,7 @@
 
 #import <UIKit/UIKit.h>
 
-@interface NotifyViewController : UIViewController
+@interface PongViewController : UIViewController
 
 @property (strong, nonatomic) IBOutlet UIButton *ballView;
 @property (strong, nonatomic) IBOutlet UIView *areaView;

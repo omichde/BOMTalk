@@ -7,10 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DE1527B9172AAB490068A9A0 /* NotifyViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE1527B7172AAB490068A9A0 /* NotifyViewController.m */; };
-		DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */; };
+		DE1527B9172AAB490068A9A0 /* PongViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE1527B7172AAB490068A9A0 /* PongViewController.m */; };
+		DE1527BA172AAB490068A9A0 /* PongViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE1527B8172AAB490068A9A0 /* PongViewController.xib */; };
 		DE2A781A173D637D00C79BBB /* ViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE2A7819173D637D00C79BBB /* ViewController.xib */; };
 		DE2A781C173D63B000C79BBB /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = DE2A781B173D63B000C79BBB /* InfoPlist.strings */; };
+		DE4035EB173FA65A0011379B /* RemoteCameraViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */; };
+		DE4035EC173FA65A0011379B /* RemoteCameraViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */; };
+		DE4035EF173FAB030011379B /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE4035EE173FAB030011379B /* AVFoundation.framework */; };
 		DE8394E017250C020088B1FE /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394DF17250C020088B1FE /* UIKit.framework */; };
 		DE8394E217250C020088B1FE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E117250C020088B1FE /* Foundation.framework */; };
 		DE8394E417250C020088B1FE /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E317250C020088B1FE /* CoreGraphics.framework */; };
@@ -25,21 +28,25 @@
 		DE83950E17250CA50088B1FE /* BOMTalkPeer.m in Sources */ = {isa = PBXBuildFile; fileRef = DE83950B17250CA50088B1FE /* BOMTalkPeer.m */; };
 		DE839510172554C50088B1FE /* GameKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE83950F172554C50088B1FE /* GameKit.framework */; };
 		DE8AD19A172982BB0040B131 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = DE8AD199172982BB0040B131 /* README.md */; };
-		DE9098981727C0E6008D8153 /* BlocksViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE9098961727C0E6008D8153 /* BlocksViewController.m */; };
-		DE9098991727C0E6008D8153 /* BlocksViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE9098971727C0E6008D8153 /* BlocksViewController.xib */; };
-		DE90989E1727C5CE008D8153 /* DelegatesViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE90989C1727C5CE008D8153 /* DelegatesViewController.m */; };
-		DE90989F1727C5CE008D8153 /* DelegatesViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */; };
+		DE9098981727C0E6008D8153 /* PasteboardViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE9098961727C0E6008D8153 /* PasteboardViewController.m */; };
+		DE9098991727C0E6008D8153 /* PasteboardViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE9098971727C0E6008D8153 /* PasteboardViewController.xib */; };
+		DE90989E1727C5CE008D8153 /* RollTheDiceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE90989C1727C5CE008D8153 /* RollTheDiceViewController.m */; };
+		DE90989F1727C5CE008D8153 /* RollTheDiceViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE90989D1727C5CE008D8153 /* RollTheDiceViewController.xib */; };
 		DE9367D8172FD6C70086AF94 /* BOMTalkDebugEvent.m in Sources */ = {isa = PBXBuildFile; fileRef = DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */; };
 		DE9367DE172FF9810086AF94 /* BOMTalkDebugViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE9367DC172FF9800086AF94 /* BOMTalkDebugViewController.m */; };
 		DE9367DF172FF9810086AF94 /* BOMTalkDebugViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE9367DD172FF9810086AF94 /* BOMTalkDebugViewController.xib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		DE1527B6172AAB490068A9A0 /* NotifyViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = NotifyViewController.h; path = ../Sample/NotifyViewController.h; sourceTree = "<group>"; };
-		DE1527B7172AAB490068A9A0 /* NotifyViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = NotifyViewController.m; path = ../Sample/NotifyViewController.m; sourceTree = "<group>"; };
-		DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = NotifyViewController.xib; path = ../Sample/NotifyViewController.xib; sourceTree = "<group>"; };
+		DE1527B6172AAB490068A9A0 /* PongViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PongViewController.h; path = ../Sample/PongViewController.h; sourceTree = "<group>"; };
+		DE1527B7172AAB490068A9A0 /* PongViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = PongViewController.m; path = ../Sample/PongViewController.m; sourceTree = "<group>"; };
+		DE1527B8172AAB490068A9A0 /* PongViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = PongViewController.xib; path = ../Sample/PongViewController.xib; sourceTree = "<group>"; };
 		DE2A7819173D637D00C79BBB /* ViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = ViewController.xib; path = Sample/ViewController.xib; sourceTree = SOURCE_ROOT; };
 		DE2A781B173D63B000C79BBB /* InfoPlist.strings */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = Sample/InfoPlist.strings; sourceTree = SOURCE_ROOT; };
+		DE4035E8173FA65A0011379B /* RemoteCameraViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RemoteCameraViewController.h; path = ../Sample/RemoteCameraViewController.h; sourceTree = "<group>"; };
+		DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = RemoteCameraViewController.m; path = ../Sample/RemoteCameraViewController.m; sourceTree = "<group>"; };
+		DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = RemoteCameraViewController.xib; path = ../Sample/RemoteCameraViewController.xib; sourceTree = "<group>"; };
+		DE4035EE173FAB030011379B /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		DE8394DC17250C020088B1FE /* BOMTalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BOMTalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE8394DF17250C020088B1FE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		DE8394E117250C020088B1FE /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -62,12 +69,12 @@
 		DE83950B17250CA50088B1FE /* BOMTalkPeer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkPeer.m; sourceTree = "<group>"; };
 		DE83950F172554C50088B1FE /* GameKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameKit.framework; path = System/Library/Frameworks/GameKit.framework; sourceTree = SDKROOT; };
 		DE8AD199172982BB0040B131 /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = README.md; sourceTree = "<group>"; };
-		DE9098951727C0E6008D8153 /* BlocksViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = BlocksViewController.h; path = ../Sample/BlocksViewController.h; sourceTree = "<group>"; };
-		DE9098961727C0E6008D8153 /* BlocksViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = BlocksViewController.m; path = ../Sample/BlocksViewController.m; sourceTree = "<group>"; };
-		DE9098971727C0E6008D8153 /* BlocksViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = BlocksViewController.xib; path = ../Sample/BlocksViewController.xib; sourceTree = "<group>"; };
-		DE90989B1727C5CE008D8153 /* DelegatesViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = DelegatesViewController.h; path = ../Sample/DelegatesViewController.h; sourceTree = "<group>"; };
-		DE90989C1727C5CE008D8153 /* DelegatesViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = DelegatesViewController.m; path = ../Sample/DelegatesViewController.m; sourceTree = "<group>"; };
-		DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = DelegatesViewController.xib; path = ../Sample/DelegatesViewController.xib; sourceTree = "<group>"; };
+		DE9098951727C0E6008D8153 /* PasteboardViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PasteboardViewController.h; path = ../Sample/PasteboardViewController.h; sourceTree = "<group>"; };
+		DE9098961727C0E6008D8153 /* PasteboardViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = PasteboardViewController.m; path = ../Sample/PasteboardViewController.m; sourceTree = "<group>"; };
+		DE9098971727C0E6008D8153 /* PasteboardViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = PasteboardViewController.xib; path = ../Sample/PasteboardViewController.xib; sourceTree = "<group>"; };
+		DE90989B1727C5CE008D8153 /* RollTheDiceViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RollTheDiceViewController.h; path = ../Sample/RollTheDiceViewController.h; sourceTree = "<group>"; };
+		DE90989C1727C5CE008D8153 /* RollTheDiceViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = RollTheDiceViewController.m; path = ../Sample/RollTheDiceViewController.m; sourceTree = "<group>"; };
+		DE90989D1727C5CE008D8153 /* RollTheDiceViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = RollTheDiceViewController.xib; path = ../Sample/RollTheDiceViewController.xib; sourceTree = "<group>"; };
 		DE9367D6172FD6C70086AF94 /* BOMTalkDebugEvent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugEvent.h; sourceTree = "<group>"; };
 		DE9367D7172FD6C70086AF94 /* BOMTalkDebugEvent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = BOMTalkDebugEvent.m; sourceTree = "<group>"; };
 		DE9367DB172FF9800086AF94 /* BOMTalkDebugViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BOMTalkDebugViewController.h; sourceTree = "<group>"; };
@@ -80,6 +87,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DE4035EF173FAB030011379B /* AVFoundation.framework in Frameworks */,
 				DE839510172554C50088B1FE /* GameKit.framework in Frameworks */,
 				DE8394E017250C020088B1FE /* UIKit.framework in Frameworks */,
 				DE8394E217250C020088B1FE /* Foundation.framework in Frameworks */,
@@ -93,9 +101,9 @@
 		DE1527B5172AAB330068A9A0 /* Notifications */ = {
 			isa = PBXGroup;
 			children = (
-				DE1527B8172AAB490068A9A0 /* NotifyViewController.xib */,
-				DE1527B6172AAB490068A9A0 /* NotifyViewController.h */,
-				DE1527B7172AAB490068A9A0 /* NotifyViewController.m */,
+				DE1527B8172AAB490068A9A0 /* PongViewController.xib */,
+				DE1527B6172AAB490068A9A0 /* PongViewController.h */,
+				DE1527B7172AAB490068A9A0 /* PongViewController.m */,
 			);
 			name = Notifications;
 			sourceTree = "<group>";
@@ -105,6 +113,7 @@
 			children = (
 				DE8AD199172982BB0040B131 /* README.md */,
 				DE83950F172554C50088B1FE /* GameKit.framework */,
+				DE4035EE173FAB030011379B /* AVFoundation.framework */,
 				DE83950517250C770088B1FE /* BOMTalk */,
 				DE8394E517250C020088B1FE /* Sample */,
 				DE8394DE17250C020088B1FE /* Frameworks */,
@@ -182,9 +191,12 @@
 		DE9098941727C0C2008D8153 /* Blocks */ = {
 			isa = PBXGroup;
 			children = (
-				DE9098971727C0E6008D8153 /* BlocksViewController.xib */,
-				DE9098951727C0E6008D8153 /* BlocksViewController.h */,
-				DE9098961727C0E6008D8153 /* BlocksViewController.m */,
+				DE9098971727C0E6008D8153 /* PasteboardViewController.xib */,
+				DE9098951727C0E6008D8153 /* PasteboardViewController.h */,
+				DE9098961727C0E6008D8153 /* PasteboardViewController.m */,
+				DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */,
+				DE4035E8173FA65A0011379B /* RemoteCameraViewController.h */,
+				DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */,
 			);
 			name = Blocks;
 			sourceTree = "<group>";
@@ -192,9 +204,9 @@
 		DE90989A1727C5B8008D8153 /* Delegates */ = {
 			isa = PBXGroup;
 			children = (
-				DE90989D1727C5CE008D8153 /* DelegatesViewController.xib */,
-				DE90989B1727C5CE008D8153 /* DelegatesViewController.h */,
-				DE90989C1727C5CE008D8153 /* DelegatesViewController.m */,
+				DE90989D1727C5CE008D8153 /* RollTheDiceViewController.xib */,
+				DE90989B1727C5CE008D8153 /* RollTheDiceViewController.h */,
+				DE90989C1727C5CE008D8153 /* RollTheDiceViewController.m */,
 			);
 			name = Delegates;
 			sourceTree = "<group>";
@@ -254,13 +266,14 @@
 				DE8394F217250C020088B1FE /* Default.png in Resources */,
 				DE8394F417250C020088B1FE /* Default@2x.png in Resources */,
 				DE8394F617250C020088B1FE /* Default-568h@2x.png in Resources */,
-				DE9098991727C0E6008D8153 /* BlocksViewController.xib in Resources */,
-				DE90989F1727C5CE008D8153 /* DelegatesViewController.xib in Resources */,
+				DE9098991727C0E6008D8153 /* PasteboardViewController.xib in Resources */,
+				DE90989F1727C5CE008D8153 /* RollTheDiceViewController.xib in Resources */,
 				DE8AD19A172982BB0040B131 /* README.md in Resources */,
-				DE1527BA172AAB490068A9A0 /* NotifyViewController.xib in Resources */,
+				DE1527BA172AAB490068A9A0 /* PongViewController.xib in Resources */,
 				DE9367DF172FF9810086AF94 /* BOMTalkDebugViewController.xib in Resources */,
 				DE2A781A173D637D00C79BBB /* ViewController.xib in Resources */,
 				DE2A781C173D63B000C79BBB /* InfoPlist.strings in Resources */,
+				DE4035EC173FA65A0011379B /* RemoteCameraViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -294,11 +307,12 @@
 				DE83950C17250CA50088B1FE /* BOMTalk.m in Sources */,
 				DE83950D17250CA50088B1FE /* BOMTalkPackage.m in Sources */,
 				DE83950E17250CA50088B1FE /* BOMTalkPeer.m in Sources */,
-				DE9098981727C0E6008D8153 /* BlocksViewController.m in Sources */,
-				DE90989E1727C5CE008D8153 /* DelegatesViewController.m in Sources */,
-				DE1527B9172AAB490068A9A0 /* NotifyViewController.m in Sources */,
+				DE9098981727C0E6008D8153 /* PasteboardViewController.m in Sources */,
+				DE90989E1727C5CE008D8153 /* RollTheDiceViewController.m in Sources */,
+				DE1527B9172AAB490068A9A0 /* PongViewController.m in Sources */,
 				DE9367D8172FD6C70086AF94 /* BOMTalkDebugEvent.m in Sources */,
 				DE9367DE172FF9810086AF94 /* BOMTalkDebugViewController.m in Sources */,
+				DE4035EB173FA65A0011379B /* RemoteCameraViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

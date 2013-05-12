@@ -11,17 +11,17 @@
 //  Copyright (c) 2013 Oliver Michalak. All rights reserved.
 //
 
-#import "DelegatesViewController.h"
+#import "RollTheDiceViewController.h"
 
 #define kRollStart (201)
 #define kRollAnswer (202)
 #define kRollWinner (203)
 #define kRollLooser (204)
 
-@interface DelegatesViewController ()
+@interface RollTheDiceViewController ()
 @end
 
-@implementation DelegatesViewController
+@implementation RollTheDiceViewController
 
 - (void) viewDidLoad {
 	[super viewDidLoad];

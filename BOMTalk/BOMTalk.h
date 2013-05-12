@@ -28,6 +28,8 @@
 #import "BOMTalkPackage.h"
 #import "BOMTalkPeer.h"
 
+//#define BOMTalkDebug 1
+
 @protocol BOMTalkDelegate <NSObject>
 @optional
 - (void) talkDidShow:(BOMTalkPeer*) peer;
@@ -65,7 +67,6 @@ typedef void (^BOMTalkProgressBlock)(float progress);
 @property (nonatomic, strong) NSMutableArray *peerList;
 @property (weak, nonatomic) id<BOMTalkDelegate>delegate;
 
-//#define BOMTalkDebug 1
 #ifdef BOMTalkDebug
 - (void) showDebuggerFromViewController:(UIViewController*) sourceViewController;
 - (void) hideDebugger;

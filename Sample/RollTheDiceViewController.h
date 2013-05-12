@@ -9,7 +9,7 @@
 #import <UIKit/UIKit.h>
 #import "BOMTalk.h"
 
-@interface DelegatesViewController : UIViewController <BOMTalkDelegate>
+@interface RollTheDiceViewController : UIViewController <BOMTalkDelegate>
 
 @property (strong, nonatomic) IBOutlet UILabel *numberView;
 @property (strong, nonatomic) IBOutlet UIButton *rollButton;

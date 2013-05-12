@@ -6,7 +6,7 @@ A rather unknown part of GameKit is its ad hoc networking between devices by mea
 - provides either a block-based or delegate-protocol or (multicast) notifications API
 - sends and receives arbitrarily sized data (no GameKit limit)
 - automatically keeps one connection slot open for up to 15 simultaneous connections per session
-- hides GameKits weird delegates/class callbacks and states
+- hides GameKits weird delegates/class callbacks and consolidates its states
 
 # Installation
 
@@ -22,6 +22,7 @@ A rather unknown part of GameKit is its ad hoc networking between devices by mea
 
 - basic network debug view controller
 - multiplayer pong basically working
+- new delegate sample: remote camera
 
 ## 0.7:
 

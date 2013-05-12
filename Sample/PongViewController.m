@@ -6,7 +6,7 @@
 //  Copyright (c) 2013 Oliver Michalak. All rights reserved.
 //
 
-#import "NotifyViewController.h"
+#import "PongViewController.h"
 #import "BOMTalk.h"
 
 #define kGameStart (301)				// server starts a game
@@ -18,7 +18,7 @@
 
 #define kXFactor (3.0)
 
-@interface NotifyViewController ()
+@interface PongViewController ()
 @property (assign, nonatomic) int counter;
 @property (strong, nonatomic) NSTimer *timer;
 @property (assign, nonatomic) CGPoint vector;
@@ -27,7 +27,7 @@
 @property (assign, nonatomic) BOOL waitingForClient;
 @end
 
-@implementation NotifyViewController
+@implementation PongViewController
 
 - (void) viewDidLoad {
 	[super viewDidLoad];

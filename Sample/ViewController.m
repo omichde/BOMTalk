@@ -7,9 +7,10 @@
 //
 
 #import "ViewController.h"
-#import "BlocksViewController.h"
-#import "DelegatesViewController.h"
-#import "NotifyViewController.h"
+#import "PasteboardViewController.h"
+#import "RemoteCameraViewController.h"
+#import "RollTheDiceViewController.h"
+#import "PongViewController.h"
 
 @interface ViewController ()
 @property (strong, nonatomic) NSArray *list;
@@ -21,7 +22,7 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
-	_list = @[@"Pasteboard (Blocks)", @"Roll the Dice (Delegates)", @"Pong (Notifications)"];
+	_list = @[@"Pasteboard (Blocks)", @"Roll the Dice (Delegates)", @"Pong (Notifications)", @"Remote Camera (Blocks)"];
 }
 
 - (void) viewDidUnload {
@@ -48,13 +49,16 @@
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
 	switch (indexPath.row) {
 		case 0:
-			[self.navigationController pushViewController:[[BlocksViewController alloc] initWithNibName:@"BlocksViewController" bundle:nil] animated:YES];
+			[self.navigationController pushViewController:[[PasteboardViewController alloc] initWithNibName:@"PasteboardViewController" bundle:nil] animated:YES];
 			break;
 		case 1:
-			[self.navigationController pushViewController:[[DelegatesViewController alloc] initWithNibName:@"DelegatesViewController" bundle:nil] animated:YES];
+			[self.navigationController pushViewController:[[RollTheDiceViewController alloc] initWithNibName:@"RollTheDiceViewController" bundle:nil] animated:YES];
 			break;
 		case 2:
-			[self.navigationController pushViewController:[[NotifyViewController alloc] initWithNibName:@"NotifyViewController" bundle:nil] animated:YES];
+			[self.navigationController pushViewController:[[PongViewController alloc] initWithNibName:@"PongViewController" bundle:nil] animated:YES];
+			break;
+		case 3:
+			[self.navigationController pushViewController:[[RemoteCameraViewController alloc] initWithNibName:@"RemoteCameraViewController" bundle:nil] animated:YES];
 			break;
 	}
 }

@@ -8,7 +8,7 @@
 
 #import <UIKit/UIKit.h>
 
-@interface BlocksViewController : UIViewController
+@interface PasteboardViewController : UIViewController
 
 @property (strong, nonatomic) IBOutlet UITextView *textView;
 @property (strong, nonatomic) IBOutlet UIImageView *imageView;

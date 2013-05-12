@@ -10,17 +10,17 @@
 //  Copyright (c) 2013 Oliver Michalak. All rights reserved.
 //
 
-#import "BlocksViewController.h"
+#import "PasteboardViewController.h"
 #import "BOMTalk.h"
 
 #define kSendText (101)
 #define kSendImage (102)
 
-@interface BlocksViewController ()
+@interface PasteboardViewController ()
 @property (strong, nonatomic) UIProgressView *progressView;
 @end
 
-@implementation BlocksViewController
+@implementation PasteboardViewController
 
 #pragma mark view callbacks
 

@@ -8,7 +8,7 @@
 
 #import "AppDelegate.h"
 #import "ViewController.h"
-#import "BlocksViewController.h"
+#import "PasteboardViewController.h"
 
 @implementation AppDelegate
 
