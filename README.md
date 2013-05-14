@@ -43,14 +43,14 @@ Taking a remote photo from a different iPhone can be useful (e.g. recursive phot
 
 # Concepts
 
-Sitting on top of GameKit which itself sits ontop of Bonjour and hence ontop of Bluetooth or WiFi, BOMTalk needs only two classes to interact with (BOMTalk and to a lesser extend BOMTalkPeer). All you have to do is prepare your data to be NSCoding compatible for transmission and a little "protocol":
+BOMTalk needs only two classes to interact with: BOMTalk and to a lesser extend BOMTalkPeer. All you have to do is prepare your data to be NSCoding compatible for transmission and a little "protocol":
 
 ## Your Protocol
 
-Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between them. Basically you draw circles for the states and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol:
+Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between them. Basically you draw circles for the states/devices and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol:
 
-	              Send Photo
-	[Device A] ---------------> [Device B]
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/dag.png">
+[dag.png](https://raw.github.com/omichde/BOMTalk/master/Sample/dag.png)
 
 Depending on your APP logic and needs you most probably add much more messages to your APP.
 
@@ -62,7 +62,9 @@ Testing your "protocol" can be an extremely tedious task: modelling states in AP
 
 ## Data and Progress
 
-Apple's size recommendation to send data through GameKit is max. 50KB, but BOMTalk allows arbitrary sized NSData. In the sender BOMTalk splits the data into blocks, collects them on the receivers end and recreates the previously NSData object. Your data must adhere to the NSCoding protocol!
+Your data must adhere to the NSCoding protocol!
+
+Apple's size recommendation to send data through GameKit is max. 50KB, but BOMTalk allows arbitrary sized NSData. In the sender BOMTalk splits the data into blocks, collects them on the receivers end and recreates the previously NSData object.
 
 Sending data is completely optional: in a lot of cases, message IDs may suffice (for states, handshaking etc). If you send data and it exceeds the limit, you can be notified of the transmission for each block (not for individual bytes) with the progress API.
 
