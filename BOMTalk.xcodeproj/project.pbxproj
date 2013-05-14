@@ -6,6 +6,20 @@
 	objectVersion = 46;
 	objects = {
 
+/* Begin PBXAggregateTarget section */
+		DE771AAF17424F6B00AE54EF /* Documentation */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = DE771AB217424F6B00AE54EF /* Build configuration list for PBXAggregateTarget "Documentation" */;
+			buildPhases = (
+				DE771AB317424F7500AE54EF /* ShellScript */,
+			);
+			dependencies = (
+			);
+			name = Documentation;
+			productName = Documentation;
+		};
+/* End PBXAggregateTarget section */
+
 /* Begin PBXBuildFile section */
 		DE1527B9172AAB490068A9A0 /* PongViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE1527B7172AAB490068A9A0 /* PongViewController.m */; };
 		DE1527BA172AAB490068A9A0 /* PongViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE1527B8172AAB490068A9A0 /* PongViewController.xib */; };
@@ -47,6 +61,10 @@
 		DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = RemoteCameraViewController.m; path = ../Sample/RemoteCameraViewController.m; sourceTree = "<group>"; };
 		DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = RemoteCameraViewController.xib; path = ../Sample/RemoteCameraViewController.xib; sourceTree = "<group>"; };
 		DE4035EE173FAB030011379B /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		DE771AB41742A9EB00AE54EF /* Pasteboard.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Pasteboard.png; path = ../Sample/Pasteboard.png; sourceTree = "<group>"; };
+		DE771AB61742AB0000AE54EF /* RemoteCamera.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = RemoteCamera.png; path = ../Sample/RemoteCamera.png; sourceTree = "<group>"; };
+		DE771AB71742AB0D00AE54EF /* RollTheDice.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = RollTheDice.png; path = ../Sample/RollTheDice.png; sourceTree = "<group>"; };
+		DE771AB81742AB1400AE54EF /* Pong.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Pong.png; path = ../Sample/Pong.png; sourceTree = "<group>"; };
 		DE8394DC17250C020088B1FE /* BOMTalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BOMTalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE8394DF17250C020088B1FE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		DE8394E117250C020088B1FE /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -104,6 +122,7 @@
 				DE1527B8172AAB490068A9A0 /* PongViewController.xib */,
 				DE1527B6172AAB490068A9A0 /* PongViewController.h */,
 				DE1527B7172AAB490068A9A0 /* PongViewController.m */,
+				DE771AB81742AB1400AE54EF /* Pong.png */,
 			);
 			name = Notifications;
 			sourceTree = "<group>";
@@ -194,9 +213,11 @@
 				DE9098971727C0E6008D8153 /* PasteboardViewController.xib */,
 				DE9098951727C0E6008D8153 /* PasteboardViewController.h */,
 				DE9098961727C0E6008D8153 /* PasteboardViewController.m */,
+				DE771AB41742A9EB00AE54EF /* Pasteboard.png */,
 				DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */,
 				DE4035E8173FA65A0011379B /* RemoteCameraViewController.h */,
 				DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */,
+				DE771AB61742AB0000AE54EF /* RemoteCamera.png */,
 			);
 			name = Blocks;
 			sourceTree = "<group>";
@@ -207,6 +228,7 @@
 				DE90989D1727C5CE008D8153 /* RollTheDiceViewController.xib */,
 				DE90989B1727C5CE008D8153 /* RollTheDiceViewController.h */,
 				DE90989C1727C5CE008D8153 /* RollTheDiceViewController.m */,
+				DE771AB71742AB0D00AE54EF /* RollTheDice.png */,
 			);
 			name = Delegates;
 			sourceTree = "<group>";
@@ -254,6 +276,7 @@
 			projectRoot = "";
 			targets = (
 				DE8394DB17250C020088B1FE /* BOMTalk */,
+				DE771AAF17424F6B00AE54EF /* Documentation */,
 			);
 		};
 /* End PBXProject section */
@@ -294,6 +317,19 @@
 			shellScript = "buildPlist=${INFOPLIST_FILE}\nbuildNumber=$(/usr/libexec/PlistBuddy -c \"Print CFBundleVersion\" $buildPlist)\nbuildNumber=$(($buildNumber + 1))\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" $buildPlist\n";
 			showEnvVarsInLog = 0;
 		};
+		DE771AB317424F7500AE54EF /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/local/bin/appledoc \\\n--project-name \"BOMTalk\" \\\n--project-company \"werk01\" \\\n--company-id \"com.werk01\" \\\n--output \"${PROJECT_DIR}\" \\\n--merge-categories \\\n--logformat xcode \\\n--keep-undocumented-objects \\\n--keep-undocumented-members \\\n--no-repeat-first-par \\\n--no-warn-invalid-crossref \\\n--ignore \"*.m\" \\\n--ignore \"BOMTalkDebugEvent.h\" \\\n--index-desc \"${PROJECT_DIR}/README.md\" \\\n\"${PROJECT_DIR}/BOMTalk\"\nrm \"${PROJECT_DIR}/docset-installed.txt\"";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -319,6 +355,20 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		DE771AB017424F6B00AE54EF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		DE771AB117424F6B00AE54EF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 		DE83950017250C030088B1FE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -406,6 +456,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		DE771AB217424F6B00AE54EF /* Build configuration list for PBXAggregateTarget "Documentation" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DE771AB017424F6B00AE54EF /* Debug */,
+				DE771AB117424F6B00AE54EF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		DE8394D717250C020088B1FE /* Build configuration list for PBXProject "BOMTalk" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
