@@ -47,7 +47,7 @@ BOMTalk needs only two classes to interact with: BOMTalk and to a lesser extend 
 
 ## Your Protocol
 
-Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between them. Basically you draw circles for the states/devices and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol, sending one photo directly to another device:
+Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states/devices and the connections between them. Basically you draw circles for the states/devices and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol, sending one photo directly to another device:
 
 <img src="https://raw.github.com/omichde/BOMTalk/master/Sample/dag.png">
 [dag.png](https://raw.github.com/omichde/BOMTalk/master/Sample/dag.png)
