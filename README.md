@@ -21,7 +21,7 @@ This example sends your current pasteboard data (image or text) to another devic
 
 ## Roll the Dice
 
-<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/RollTheDice.png">
+[RollTheDice.png](https://raw.github.com/omichde/BOMTalk/master/Sample/RollTheDice.png)
 
 All devices will roll a random number and the one who wins will be displayed in green, the others will see a red number.
 
@@ -35,7 +35,7 @@ This rough mini-game connects two player and lets them play pong against each ot
 
 <img src="https://raw.github.com/omichde/BOMTalk/master/Sample/RemoteCamera.png">
 
-Taking a remote photo from a different iPhone can be useful (self-portrait without an arm), this APP allows you to request a photo from another iPhone in maximum quality to be sent to your device and save it to the photo album. This idea was born at [UIKonf](http://www.uikonf.com) by two attendees.
+Taking a remote photo from a different iPhone can be useful (e.g. recursive photos or self-portraits without *the* arm), this APP allows you to request a photo from another iPhone in maximum quality to be sent to your device and save it to the photo album. This idea was born at [UIKonf](http://www.uikonf.com) by two attendees.
 
 # Concepts
 
@@ -43,7 +43,7 @@ Sitting on top of GameKit which itself sits ontop of Bonjour and hence ontop of 
 
 ## Your Protocol
 
-Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between your devices/APPs. Basically you draw circles for the states and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol:
+Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between them. Basically you draw circles for the states and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol:
 
 	              Send Photo
 	[Device A] ---------------> [Device B]
