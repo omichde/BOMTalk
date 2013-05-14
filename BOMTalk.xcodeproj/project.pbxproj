@@ -66,6 +66,7 @@
 		DE771AB71742AB0D00AE54EF /* RollTheDice.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = RollTheDice.png; path = ../Sample/RollTheDice.png; sourceTree = "<group>"; };
 		DE771AB81742AB1400AE54EF /* Pong.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Pong.png; path = ../Sample/Pong.png; sourceTree = "<group>"; };
 		DE771AB91742B7DE00AE54EF /* dag.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = dag.png; path = ../Sample/dag.png; sourceTree = "<group>"; };
+		DE771ABA1742D25F00AE54EF /* dag-double.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "dag-double.png"; path = "Sample/dag-double.png"; sourceTree = SOURCE_ROOT; };
 		DE8394DC17250C020088B1FE /* BOMTalk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BOMTalk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE8394DF17250C020088B1FE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		DE8394E117250C020088B1FE /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -184,6 +185,7 @@
 				DE8394EB17250C020088B1FE /* main.m */,
 				DE8394ED17250C020088B1FE /* BOMTalk-Prefix.pch */,
 				DE771AB91742B7DE00AE54EF /* dag.png */,
+				DE771ABA1742D25F00AE54EF /* dag-double.png */,
 				DE8394F117250C020088B1FE /* Default.png */,
 				DE8394F317250C020088B1FE /* Default@2x.png */,
 				DE8394F517250C020088B1FE /* Default-568h@2x.png */,

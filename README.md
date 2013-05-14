@@ -47,12 +47,15 @@ BOMTalk needs only two classes to interact with: BOMTalk and to a lesser extend 
 
 ## Your Protocol
 
-Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between them. Basically you draw circles for the states/devices and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol:
+Although BOMTalk is built to let your APPs "talk" to each other, you need to define the "language" or the "protocol" to achieve this interaction. This protocol is sometimes described by [DAGs](http://bit.ly/5UhB), a neat way to visualize the different states and the connections between them. Basically you draw circles for the states/devices and connect them with arrows. These arrows are the messages (with optional payload/data) which are sent between devices/APPs. In BOMTalk each messages is a number (with optional payload/data) and could be as simpel as this one-direction protocol, sending one photo directly to another device:
 
 <img src="https://raw.github.com/omichde/BOMTalk/master/Sample/dag.png">
 [dag.png](https://raw.github.com/omichde/BOMTalk/master/Sample/dag.png)
 
-Depending on your APP logic and needs you most probably add much more messages to your APP.
+Depending on your APP logic and needs you most probably add much more messages to your APP. For example, *requesting* a photo from another device requires two messages:
+
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/dag-double.png">
+[dag-double.png](https://raw.github.com/omichde/BOMTalk/master/Sample/dag-double.png)
 
 Testing your "protocol" can be an extremely tedious task: modelling states in APPs takes some time to figure out correctly, network connections are unreliable, they are delayed or will never arrive at all. For that reason, BOMTalk offers a basic network messaging debugger BOMTalkDebugViewController (on top of GameKit) with a timeline of appearing and disappearing peers and events/messages between those peers.
 
