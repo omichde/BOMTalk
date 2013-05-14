@@ -170,42 +170,42 @@ Copy the topmost BOMTalk folder to your project, add the GameKit.framework to yo
 
 # Version
 
-## 0.9
+**0.9:**
 
 - A new XCode build target creates an [appledoc](http://gentlebytes.com/appledoc/) documentation from the sources.
 
-## 0.8:
+**0.8:**
 
 - basic network debug view controller
 - multiplayer pong basically working
 - new delegate sample: remote camera
 
-## 0.7:
+**0.7:**
 
 - prepared pong game for multiplayer
 
-## 0.6:
+**0.6:**
 
 - new sample: pong game (local mode only)
 
-## 0.5:
+**0.5:**
 
 - streamlined API for blocks, delegates and notifications
 
-## 0.4:
+**0.4:**
 
 - progress API
 
-## 0.3:
+**0.3:**
 
 - merged some callbacks
 - refined API
 
-## 0.2:
+**0.2:**
 
 - expanded delegates
 
-## 0.1:
+**0.1:**
 
 - two samples: Pasteboard, Roll-the-Dice
 
