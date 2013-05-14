@@ -15,25 +15,25 @@ This is what BOMTalk offers:
 
 ## Pastboard
 
-<img src="https://raw.github.com/omichde/BOMTalk/master/Pasteboard.png">
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/Pasteboard.png">
 
 This example sends your current pasteboard data (image or text) to another device of your choice. The receiving device will display the image or text and copies it to its own pasteboard.
 
 ## Roll the Dice
 
-<img src="https://raw.github.com/omichde/BOMTalk/master/RollTheDice.png">
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/RollTheDice.png">
 
 All devices will roll a random number and the one who wins will be displayed in green, the others will see a red number.
 
 ## Pong
 
-<img src="https://raw.github.com/omichde/BOMTalk/master/Pong.png">
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/Pong.png">
 
 This rough mini-game connects two player and lets them play pong against each other. With only basic UI and highscores this gives a good start for fast communication between devices in BOMTalk.
 
 ## Remote Camera
 
-<img src="https://raw.github.com/omichde/BOMTalk/master/RemoteCamera.png">
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/RemoteCamera.png">
 
 Taking a remote photo from a different iPhone can be useful (self-portrait without an arm), this APP allows you to request a photo from another iPhone in maximum quality to be sent to your device and save it to the photo album. This idea was born at [UIKonf](http://www.uikonf.com) by two attendees.
 
