@@ -328,7 +328,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "/usr/local/bin/appledoc \\\n--project-name \"BOMTalk\" \\\n--project-company \"werk01\" \\\n--company-id \"com.werk01\" \\\n--output \"${PROJECT_DIR}\" \\\n--merge-categories \\\n--logformat xcode \\\n--keep-undocumented-objects \\\n--keep-undocumented-members \\\n--no-repeat-first-par \\\n--no-warn-invalid-crossref \\\n--include \"${PROJECT_DIR}/Sample/RollTheDice.png\" \\\n--ignore \"*.m\" \\\n--ignore \"BOMTalkDebugEvent.h\" \\\n--index-desc \"${PROJECT_DIR}/README.md\" \\\n\"${PROJECT_DIR}/BOMTalk\"\nrm \"${PROJECT_DIR}/docset-installed.txt\"";
+			shellScript = "/usr/local/bin/appledoc \\\n--project-name \"BOMTalk\" \\\n--project-company \"werk01\" \\\n--company-id \"com.werk01\" \\\n--output \"${PROJECT_DIR}\" \\\n--merge-categories \\\n--logformat xcode \\\n--keep-undocumented-objects \\\n--keep-undocumented-members \\\n--no-repeat-first-par \\\n--no-warn-invalid-crossref \\\n--ignore \"*.m\" \\\n--ignore \"BOMTalkDebugEvent.h\" \\\n--index-desc \"${PROJECT_DIR}/README.md\" \\\n\"${PROJECT_DIR}/BOMTalk\"\nrm \"${PROJECT_DIR}/docset-installed.txt\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
