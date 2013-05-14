@@ -21,7 +21,8 @@ This example sends your current pasteboard data (image or text) to another devic
 
 ## Roll the Dice
 
-[RollTheDice.png](master/Sample/RollTheDice.png)
+<img src="https://raw.github.com/omichde/BOMTalk/master/Sample/RollTheDice.png">
+[RollTheDice.png](https://raw.github.com/omichde/BOMTalk/master/Sample/RollTheDice.png)
 
 All devices will roll a random number and the one who wins will be displayed in green, the others will see a red number.
 
