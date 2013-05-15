@@ -28,6 +28,8 @@
 		DE4035EB173FA65A0011379B /* RemoteCameraViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */; };
 		DE4035EC173FA65A0011379B /* RemoteCameraViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */; };
 		DE4035EF173FAB030011379B /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE4035EE173FAB030011379B /* AVFoundation.framework */; };
+		DE4E81D117437BA1007D4E7A /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = DE4E81D017437BA1007D4E7A /* Icon.png */; };
+		DE4E81D317437BA5007D4E7A /* Icon@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = DE4E81D217437BA5007D4E7A /* Icon@2x.png */; };
 		DE8394E017250C020088B1FE /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394DF17250C020088B1FE /* UIKit.framework */; };
 		DE8394E217250C020088B1FE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E117250C020088B1FE /* Foundation.framework */; };
 		DE8394E417250C020088B1FE /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE8394E317250C020088B1FE /* CoreGraphics.framework */; };
@@ -61,6 +63,8 @@
 		DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = RemoteCameraViewController.m; path = ../Sample/RemoteCameraViewController.m; sourceTree = "<group>"; };
 		DE4035EA173FA65A0011379B /* RemoteCameraViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = RemoteCameraViewController.xib; path = ../Sample/RemoteCameraViewController.xib; sourceTree = "<group>"; };
 		DE4035EE173FAB030011379B /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		DE4E81D017437BA1007D4E7A /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Icon.png; path = ../Icon.png; sourceTree = "<group>"; };
+		DE4E81D217437BA5007D4E7A /* Icon@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "Icon@2x.png"; path = "../Icon@2x.png"; sourceTree = "<group>"; };
 		DE771AB41742A9EB00AE54EF /* Pasteboard.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Pasteboard.png; path = ../Sample/Pasteboard.png; sourceTree = "<group>"; };
 		DE771AB61742AB0000AE54EF /* RemoteCamera.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = RemoteCamera.png; path = ../Sample/RemoteCamera.png; sourceTree = "<group>"; };
 		DE771AB71742AB0D00AE54EF /* RollTheDice.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = RollTheDice.png; path = ../Sample/RollTheDice.png; sourceTree = "<group>"; };
@@ -186,6 +190,8 @@
 				DE8394ED17250C020088B1FE /* BOMTalk-Prefix.pch */,
 				DE771AB91742B7DE00AE54EF /* dag.png */,
 				DE771ABA1742D25F00AE54EF /* dag-double.png */,
+				DE4E81D017437BA1007D4E7A /* Icon.png */,
+				DE4E81D217437BA5007D4E7A /* Icon@2x.png */,
 				DE8394F117250C020088B1FE /* Default.png */,
 				DE8394F317250C020088B1FE /* Default@2x.png */,
 				DE8394F517250C020088B1FE /* Default-568h@2x.png */,
@@ -301,6 +307,8 @@
 				DE2A781A173D637D00C79BBB /* ViewController.xib in Resources */,
 				DE2A781C173D63B000C79BBB /* InfoPlist.strings in Resources */,
 				DE4035EC173FA65A0011379B /* RemoteCameraViewController.xib in Resources */,
+				DE4E81D117437BA1007D4E7A /* Icon.png in Resources */,
+				DE4E81D317437BA5007D4E7A /* Icon@2x.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

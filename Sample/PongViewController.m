@@ -55,6 +55,9 @@
 	[super viewDidDisappear:animated];
 	[[NSNotificationCenter defaultCenter] removeObserver: self];
 	[[BOMTalk sharedTalk] stop];
+#ifdef BOMTalkDebug
+	[[BOMTalk sharedTalk] hideDebugger];
+#endif
 }
 
 - (void) viewDidUnload {

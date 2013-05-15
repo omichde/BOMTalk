@@ -28,7 +28,7 @@
 #import "BOMTalkPackage.h"
 #import "BOMTalkPeer.h"
 
-//#define BOMTalkDebug 1
+#define BOMTalkDebug 1
 
 /**
  Optional delegates to be called in their respective context.
@@ -157,6 +157,12 @@ typedef void (^BOMTalkProgressBlock)(float progress);
  @param sourceViewController Originating view controller.
  */
 - (void) showDebuggerFromViewController:(UIViewController*) sourceViewController;
+
+/**
+ Adds a simple message to the timeline
+ @param formatString Format string with optional parameters
+ */
+- (void) addDebuggerMessage: (NSString*) formatString, ...;
 
 /**
  Hides the network debugger.

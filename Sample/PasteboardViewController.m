@@ -45,6 +45,9 @@
 - (void) viewWillDisappear:(BOOL)animated {
 	[super viewWillDisappear:animated];
 	[self stopView:nil];
+#ifdef BOMTalkDebug
+	[[BOMTalk sharedTalk] hideDebugger];
+#endif
 }
 
 - (void) viewDidUnload {

@@ -6,6 +6,7 @@
 #import "BOMTalk.h"
 #import "BOMTalkPackage.h"
 #import "BOMTalkDebugViewController.h"
+#import "BOMTalkDebugEvent.h"
 
 @interface BOMTalk ()
 @property (strong, nonatomic) GKSession *sessionNetwork;
@@ -61,6 +62,14 @@
 	} completion:^(BOOL finished) {
 		[_debugViewController didMoveToParentViewController: sourceViewController];
 	}];
+}
+
+- (void) addDebuggerMessage: (NSString*) formatString, ... {
+	va_list args;
+	va_start(args, formatString);
+	NSString *message = [[NSString alloc] initWithFormat:formatString arguments:args];
+	va_end(args);
+	[_debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer:nil toPeer:nil message: message]];
 }
 
 - (void) hideDebugger {

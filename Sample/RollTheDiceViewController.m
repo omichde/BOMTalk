@@ -44,6 +44,9 @@
 - (void) viewWillDisappear:(BOOL) animated {
 	[super viewWillDisappear:animated];
 	[[BOMTalk sharedTalk] stop];
+#ifdef BOMTalkDebug
+	[[BOMTalk sharedTalk] hideDebugger];
+#endif
 }
 
 - (void) viewDidUnload {
@@ -69,12 +72,16 @@
 #pragma mark talk delegates
 
 - (void) talkDidConnect:(BOMTalkPeer*) peer {
-	[[BOMTalk sharedTalk] sendToAllMessage:kRollStart];
+	BOMTalk *talker = [BOMTalk sharedTalk];
+	[talker addDebuggerMessage:@"%@", talker.selfPeer.userInfo[@"number"]];
+	if ([talker.selfPeer.userInfo[@"number"] integerValue] != -1)
+		[[BOMTalk sharedTalk] sendToAllMessage:kRollStart];
 }
 
 - (void) talkReceived:(NSInteger) messageID fromPeer:(BOMTalkPeer*) sender withData:(id<NSCoding>) data {
 	switch (messageID) {
 		case kRollStart: {
+			[self reset];
 			_rollButton.hidden = YES;
 			_loadingView.hidden = NO;
 			_numberView.text = @"";

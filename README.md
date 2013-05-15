@@ -39,7 +39,7 @@ This rough mini-game connects two player and lets them play pong against each ot
 <img src="https://raw.github.com/omichde/BOMTalk/master/Sample/RemoteCamera.png">
 [RemoteCamera.png](https://raw.github.com/omichde/BOMTalk/master/Sample/RemoteCamera.png)
 
-Taking a remote photo from a different iPhone can be useful (e.g. recursive photos or self-portraits without *the* arm), this APP allows you to request a photo from another iPhone in maximum quality to be sent to your device and save it to the photo album. This idea was born at [UIKonf](http://www.uikonf.com) by two attendees.
+Taking a remote photo from a different iPhone can be useful (e.g. recursive photos or self-portraits without *the* arm), this APP allows you to request a photo from another iPhone in maximum quality to be sent to your device and saved to the photo album. The idea was born at [UIKonf](http://www.uikonf.com) by two attendees.
 
 # Concepts
 
@@ -69,11 +69,11 @@ Your data must adhere to the NSCoding protocol!
 
 Apple's size recommendation to send data through GameKit is max. 50KB, but BOMTalk allows arbitrary sized NSData. In the sender BOMTalk splits the data into blocks, collects them on the receivers end and recreates the previously NSData object.
 
-Sending data is completely optional: in a lot of cases, message IDs may suffice (for states, handshaking etc). If you send data and it exceeds the limit, you can be notified of the transmission for each block (not for individual bytes) with the progress API.
+Sending data is completely optional: in a lot of cases, message IDs may suffice (for states, handshaking etc). If you send data and it exceeds the limit, you can be notified of the transmission progress for each block (not for individual bytes).
 
 # Documentation
 
-BOMTalk consolidates GameKits APIs and internal techniques by providing a BOMTalk connection "object". This object ecapsulates the network handling, keeps its list of peers up to date and interacts with your controller in three ways: blocks, delegates or notifications. Alongside the obvious [sendTo]([BOMTalk sendToAllMessage:])-messages all callback mechanisms are modelled with the same concept in mind:
+BOMTalk consolidates GameKits APIs and internal techniques by providing a BOMTalk connection "singleton". This object ecapsulates the network handling, keeps its list of peers up to date and interacts with your controller in three ways: blocks, delegates or notifications. Alongside the obvious [sendTo]([BOMTalk sendToAllMessage:])-messages all callback mechanisms are modelled with the same concept in mind:
 
 - answering to incoming messages
 - progess metrics for outgoing and incoming data
@@ -102,7 +102,7 @@ Blocks immensly simplify your code logic in your controller. As an example (exce
 
 ## 2. Delegates
 
-If you need a seperate object to react to your network messages or prefer the common delegate mechnism, you can use it with BOMTalk as well. As another example (excerpt from the Roll the Dice example) to answer to a remote request, your APP receives the request and sends data back like this:
+If you need a seperate object to react to your network messages or prefer the common delegate mechanism, you can use it with BOMTalk as well. As another example (excerpt from the Roll the Dice example) to answer to a remote request, your APP receives the request and sends data back like this:
 
 	// SENDER
 	- (void) viewDidLoad {
@@ -169,13 +169,14 @@ The three mechanisms are mutually exclusive for the same event type: e.g. for co
 
 # Installation
 
-Copy the topmost BOMTalk folder to your project, add the GameKit.framework to your project and include the `BOMTalk.h` header file.
+Copy the topmost `BOMTalk` folder to your project, add the `GameKit.framework` to your project and include the `BOMTalk.h` header file. Maybe I'll split the project later on to move the samples into another repository.
 
 # Version
 
 **0.9:**
 
-- A new XCode build target creates an [appledoc](http://gentlebytes.com/appledoc/) documentation from the sources.
+- a new XCode build target creates an [appledoc](http://gentlebytes.com/appledoc/) documentation from the sources.
+- documentation to illustrate BOMTalk in practice
 
 **0.8:**
 

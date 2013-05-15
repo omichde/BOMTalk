@@ -94,11 +94,11 @@
 		}
 	}
 	else {
-		eventLabel.frame = CGRectMake (kPeerWidth * [_peerList indexOfObject: event.sourcePeer], 0, kPeerWidth, kPeerWidth);
+		eventLabel.frame = CGRectMake (0, 0, kPeerWidth, kPeerWidth);
 		eventLabel.textAlignment = UITextAlignmentCenter;
 	}
 	eventLabel.text = event.message;
-	eventLabel.textColor = [UIColor colorWithHue:0.1*(_eventList.count % 10) saturation:1 brightness:1 alpha:0.8];
+	eventLabel.textColor = [UIColor colorWithHue:0.05*(_eventList.count % 20) saturation:1 brightness:1 alpha:0.8];
 	eventLabel.backgroundColor = [UIColor colorWithWhite: 0.2 + 0.1*([_peerList indexOfObject: event.sourcePeer] % 5) alpha:0.8];
 	eventLabel.tag = kTagEvent + _eventList.count;
 	eventLabel.font = [UIFont systemFontOfSize:10];
