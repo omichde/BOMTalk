@@ -38,12 +38,14 @@
 
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	talker.delegate = self;
-	[talker startInMode:GKSessionModePeer];
+	[talker start];
 }
 
 - (void) viewWillDisappear:(BOOL) animated {
 	[super viewWillDisappear:animated];
-	[[BOMTalk sharedTalk] stop];
+	BOMTalk *talker = [BOMTalk sharedTalk];
+	[talker stop];
+	talker.delegate = nil;
 #ifdef BOMTalkDebug
 	[[BOMTalk sharedTalk] hideDebugger];
 #endif
@@ -73,7 +75,9 @@
 
 - (void) talkDidConnect:(BOMTalkPeer*) peer {
 	BOMTalk *talker = [BOMTalk sharedTalk];
+#ifdef BOMTalkDebug
 	[talker addDebuggerMessage:@"%@", talker.selfPeer.userInfo[@"number"]];
+#endif
 	if ([talker.selfPeer.userInfo[@"number"] integerValue] != -1)
 		[[BOMTalk sharedTalk] sendToAllMessage:kRollStart];
 }

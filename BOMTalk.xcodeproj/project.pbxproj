@@ -138,7 +138,6 @@
 			children = (
 				DE8AD199172982BB0040B131 /* README.md */,
 				DE83950F172554C50088B1FE /* GameKit.framework */,
-				DE4035EE173FAB030011379B /* AVFoundation.framework */,
 				DE83950517250C770088B1FE /* BOMTalk */,
 				DE8394E517250C020088B1FE /* Sample */,
 				DE8394DE17250C020088B1FE /* Frameworks */,
@@ -228,6 +227,7 @@
 				DE4035E8173FA65A0011379B /* RemoteCameraViewController.h */,
 				DE4035E9173FA65A0011379B /* RemoteCameraViewController.m */,
 				DE771AB61742AB0000AE54EF /* RemoteCamera.png */,
+				DE4035EE173FAB030011379B /* AVFoundation.framework */,
 			);
 			name = Blocks;
 			sourceTree = "<group>";

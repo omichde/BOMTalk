@@ -43,12 +43,12 @@
 	[super viewWillAppear:animated];
 	_timer = [NSTimer scheduledTimerWithTimeInterval:0.05 target:self selector:@selector(update:) userInfo:nil repeats:YES];
 	[self reset];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateTalk:) name:kBOMTalkUpdateNotification object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(errorTalk:) name:kBOMTalkFailedNotification object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(connectedTalk:) name:kBOMTalkDidConnectNotification object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedTalk:) name:kBOMTalkReceivedNotification object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateTalk:) name:BOMTalkUpdateNotification object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(errorTalk:) name:BOMTalkFailedNotification object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(connectedTalk:) name:BOMTalkDidConnectNotification object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedTalk:) name:BOMTalkReceivedNotification object:nil];
 	BOMTalk *talker = [BOMTalk sharedTalk];
-	[talker startInMode:GKSessionModePeer];
+	[talker start];
 }
 
 - (void) viewDidDisappear:(BOOL)animated {

@@ -44,6 +44,7 @@
 	if ((self = [super init])) {
 		_peerList = [[NSMutableArray alloc] init];
 		_messageList = [[NSMutableArray alloc] init];
+		_mode = BOMTalkModeNone;
 #ifdef BOMTalkDebug
 		_debugViewController = [[BOMTalkDebugViewController alloc] initWithNibName:@"BOMTalkDebugViewController" bundle:nil];
 		_debugViewController.view.tag = 0;	// force load of view and hence viewDidLoad
@@ -84,11 +85,15 @@
 
 #pragma mark network handling
 
-- (void) startInMode:(GKSessionMode) mode {
-	[self startInMode:mode didShow:nil didHide:nil didConnect:nil didDisconnect:nil];
+- (void) start {
+	[self startWithMode:BOMTalkModePeer didShow:nil didHide:nil didConnect:nil didDisconnect:nil];
 }
 
-- (void) startInMode:(GKSessionMode) mode didShow:(BOMTalkBlock) showBlock didHide:(BOMTalkBlock) hideBlock didConnect:(BOMTalkBlock) connectBlock didDisconnect:(BOMTalkBlock) disconnectBlock {
+- (void) startWithMode:(BOMTalkMode) mode {
+	[self startWithMode:mode didShow:nil didHide:nil didConnect:nil didDisconnect:nil];
+}
+
+- (void) startWithMode:(BOMTalkMode) mode didShow:(BOMTalkBlock) showBlock didHide:(BOMTalkBlock) hideBlock didConnect:(BOMTalkBlock) connectBlock didDisconnect:(BOMTalkBlock) disconnectBlock {
 	if (_sessionNetwork)
 		return;
 
@@ -97,7 +102,18 @@
 	_connectBlock = connectBlock;
 	_disconnectBlock = disconnectBlock;
 	_mode = mode;
-	_sessionNetwork = [[GKSession alloc] initWithSessionID:nil displayName:nil sessionMode: _mode];
+	GKSessionMode gkmode = 0;
+	switch (mode) {
+		case BOMTalkModeServer:
+			gkmode = GKSessionModeServer;
+			break;
+		case BOMTalkModeClient:
+			gkmode = GKSessionModeClient;
+			break;
+		default:
+			gkmode = GKSessionModePeer;
+	}
+	_sessionNetwork = [[GKSession alloc] initWithSessionID:nil displayName:nil sessionMode: gkmode];
 	_sessionNetwork.delegate = self;
 	[_sessionNetwork setDataReceiveHandler:self withContext:nil];
 	_selfPeer = [[BOMTalkPeer alloc] initWithPeer:_sessionNetwork.peerID name: [_sessionNetwork displayName]];
@@ -116,31 +132,28 @@
 	_serverPeer = nil;
 	[_peerList removeAllObjects];
 	_delegate = nil;
-
+	_mode = BOMTalkModeNone;
 	_showBlock = nil;
 	_hideBlock = nil;
 	_connectBlock = nil;
 	_disconnectBlock = nil;
-	
 	[_messageList removeAllObjects];
 	_updateBlock = nil;
 	_failureBlock = nil;
-
 	_connectSuccessBlock = nil;
 	_connectFailureBlock = nil;
-
 	_progressReceivingBlock = nil;
 	_progressSendingBlock = nil;
 }
 
 - (void) reset {
-	GKSessionMode mode = _mode;
+	BOMTalkMode mode = _mode;
 	[self stop];
-	[self startInMode:mode];
+	[self startWithMode:mode];
 }
 
 - (BOOL) asServer {
-	return (_mode == GKSessionModeServer || _mode == GKSessionModePeer);
+	return (_mode == BOMTalkModeServer || _mode == BOMTalkModePeer);
 }
 
 - (void) show {
@@ -158,10 +171,9 @@
 	[self stop];
 	if ([_delegate respondsToSelector:@selector(talkFailed:)])
 		[_delegate talkFailed:error];
-	else if (_failureBlock)
+	if (_failureBlock)
 		_failureBlock(error);
-	else
-		[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkFailedNotification object:error]];
+	[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkFailedNotification object:error]];
 }
 
 #pragma mark block based callbacks
@@ -244,28 +256,25 @@
 - (void) session:(GKSession*) session didReceiveConnectionRequestFromPeer:(NSString*) peerID {
 	[_debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer:_selfPeer toPeer: nil message:@"Request from %@", [session displayNameForPeer: peerID]]];
 	NSError *error = nil;
-	if (self.asServer) {	// auto-accept all clients as server
-		if (![_sessionNetwork acceptConnectionFromPeer:peerID error:&error])
-			DLog(@"conn request acc failed: %@", error.localizedDescription);
-	}
-	else
-		[session denyConnectionFromPeer:peerID];
+//	if (self.asServer)
+		[_sessionNetwork acceptConnectionFromPeer:peerID error:&error];
+//	else
+//		[session denyConnectionFromPeer:peerID];
 }
 
 - (void) session:(GKSession*) session connectionWithPeerFailed:(NSString*) peerID withError:(NSError*) error {
-	[_debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer:_selfPeer toPeer: nil message:@"Failed %@", peerID]];
-	[_peerList removeObject: [self peerForPeerID:peerID]];
+	[_debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer: [self peerForPeerID:peerID] toPeer: nil message:@"Failed %@", peerID]];
+//	[_peerList removeObject: [self peerForPeerID:peerID]];
 	if ([_delegate respondsToSelector:@selector(talkFailed:)])
 		[_delegate talkFailed:error];
-	else if (_connectFailureBlock) {
+	if (_connectFailureBlock) {
 		_connectFailureBlock (error);
 		_connectSuccessBlock = nil;
 		_connectFailureBlock = nil;
 	}
-	else if (_failureBlock)
+	if (_failureBlock)
 		_failureBlock (error);
-	else
-		[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkFailedNotification object:error]];
+	[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkFailedNotification object:error]];
 }
 
 - (void) session:(GKSession*) session peer:(NSString*) peerID didChangeState:(GKPeerConnectionState) state {
@@ -283,12 +292,12 @@
 			peer.state = MAX(BOMTalkPeerStateVisible, peer.state);
 			if (![_peerList containsObject:peer])
 				[_peerList addObject:peer];
+
 			if ([self.delegate respondsToSelector:@selector(talkDidShow:)])
 				[self.delegate talkDidShow:peer];
-			else if (_showBlock)
+			if (_showBlock)
 				_showBlock (peer);
-			else
-				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidShowNotification object: peer]];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkDidShowNotification object: peer]];
 		}
 		break;
 
@@ -297,12 +306,12 @@
 			[_peerList removeObject:peer];
 			if ([_serverPeer.peerID isEqual:peer.peerID])
 				_serverPeer = nil;
+
 			if ([self.delegate respondsToSelector:@selector(talkDidHide:)])
 				[self.delegate talkDidHide: peer];
-			else if (_hideBlock)
+			if (_hideBlock)
 				_hideBlock (peer);
-			else
-				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidHideNotification object: peer]];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkDidHideNotification object: peer]];
 		}
 		break;
 
@@ -316,42 +325,42 @@
 		case GKPeerStateConnected: {
 			[_debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer: peer toPeer: _selfPeer message:@"Connected"]];
 			peer.state = MAX(BOMTalkPeerStateConnected, peer.state);
-			_serverPeer = peer;
+			if (!_serverPeer)
+				_serverPeer = peer;
+
 			if ([self.delegate respondsToSelector:@selector(talkDidConnect:)])
 				[self.delegate talkDidConnect: peer];
-			else if (_connectBlock)
+			if (_connectBlock)
 				_connectBlock (peer);
-			else if (_connectSuccessBlock) {
+			if (_connectSuccessBlock) {
 				_connectSuccessBlock (peer);
 				_connectSuccessBlock = nil;
 				_connectFailureBlock = nil;
 			}
-			else
-				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidConnectNotification object: peer]];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkDidConnectNotification object: peer]];
 		}
 		break;
-			
+
 		case GKPeerStateDisconnected: {
 			[_debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer: peer toPeer: _selfPeer message:@"Disconnected"]];
 			[_peerList removeObject: peer];
 			if ([_serverPeer.peerID isEqual:peer.peerID])
 				_serverPeer = nil;
+
 			if ([self.delegate respondsToSelector:@selector(talkDidDisconnect:)])
 				[self.delegate talkDidDisconnect: peer];
-			else if (_disconnectBlock)
+			if (_disconnectBlock)
 				_disconnectBlock (peer);
-			else
-				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkDidDisconnectNotification object: peer]];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkDidDisconnectNotification object: peer]];
 		}
 		break;
 	}
 	// fire general update mechanism
 	if ([_delegate respondsToSelector:@selector(talkUpdate:)])
 		[_delegate talkUpdate: peer];
-	else if (_updateBlock)
+	if (_updateBlock)
 		_updateBlock(peer);
-	else
-		[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkUpdateNotification object: peer]];
+	[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkUpdateNotification object: peer]];
 }
 
 - (void) receiveData:(NSData*) data fromPeer:(NSString*) peerID inSession: (GKSession*) session context:(void*) context {
@@ -380,10 +389,9 @@
 
 				if ([self.delegate respondsToSelector:@selector(talkProgressForReceiving:)])
 					[self.delegate talkProgressForReceiving:0.0];
-				else if (_progressReceivingBlock)
+				if (_progressReceivingBlock)
 					_progressReceivingBlock (0.0);
-				else
-					[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkProgressForReceivingNotification object: [NSNumber numberWithFloat:0.0]]];
+				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkProgressForReceivingNotification object: [NSNumber numberWithFloat:0.0]]];
 			}
 		}
 	}
@@ -395,32 +403,26 @@
 		if (lastPackage.isComplete) {
 			if ([self.delegate respondsToSelector:@selector(talkProgressForReceiving:)])
 				[self.delegate talkProgressForReceiving:1.0];
-			else if (_progressReceivingBlock)
+			if (_progressReceivingBlock)
 				_progressReceivingBlock (1.0);
-			else
-				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkProgressForReceivingNotification object: [NSNumber numberWithFloat:1.0]]];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkProgressForReceivingNotification object: [NSNumber numberWithFloat:1.0]]];
 
 			id<NSCoding> lastData = nil;
 			if (lastPackage.data)
 				lastData = [NSKeyedUnarchiver unarchiveObjectWithData:lastPackage.data];
 			if ([_delegate respondsToSelector:@selector(talkReceived:fromPeer:withData:)])
 					[_delegate talkReceived:lastPackage.messageID fromPeer:peer withData: lastData];
-			else {
-				BOOL blockFired = NO;
-				for (NSDictionary *messageDict in _messageList) {
-					if (lastPackage.messageID == [messageDict[@"messageID"] integerValue]) {
-						BOMTalkMessageBlock messageBlock = messageDict[@"block"];
-						messageBlock(peer, lastData);
-						blockFired = YES;
-					}
-				}
-				if (!blockFired) {
-					NSMutableDictionary *dataDict = [@{@"messageID": [NSNumber numberWithInt:lastPackage.messageID], @"peer": peer} mutableCopy];
-					if (lastData)
-						[dataDict setObject:lastData forKey:@"data"];
-					[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkReceivedNotification object: dataDict]];
+			for (NSDictionary *messageDict in _messageList) {
+				if (lastPackage.messageID == [messageDict[@"messageID"] integerValue]) {
+					BOMTalkMessageBlock messageBlock = messageDict[@"block"];
+					messageBlock(peer, lastData);
 				}
 			}
+			NSMutableDictionary *dataDict = [@{@"messageID": [NSNumber numberWithInt:lastPackage.messageID], @"peer": peer} mutableCopy];
+			if (lastData)
+				[dataDict setObject:lastData forKey:@"data"];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkReceivedNotification object: dataDict]];
+
 			peer.state = BOMTalkPeerStateConnected;
 			lastData = nil;
 			lastPackage = nil;
@@ -444,13 +446,13 @@
 			}
 		}
 		else {
+			peer.state = BOMTalkPeerStateTransfering;
 			float progress = lastPackage.progress;
 			if ([self.delegate respondsToSelector:@selector(talkProgressForReceiving:)])
 				[self.delegate talkProgressForReceiving:progress];
-			else if (_progressReceivingBlock)
+			if (_progressReceivingBlock)
 				_progressReceivingBlock (progress);
-			else
-				[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkProgressForReceivingNotification object: [NSNumber numberWithFloat:progress]]];
+			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkProgressForReceivingNotification object: [NSNumber numberWithFloat:progress]]];
 		}
 	}
 }
@@ -471,13 +473,13 @@
 }
 
 - (void) sendMessage:(int) messageID toPeer:(BOMTalkPeer*) peer withData:(id<NSCoding>) data {
+	peer.state = BOMTalkPeerStateTransfering;
 	if ([self.delegate respondsToSelector:@selector(talkProgressForSending:)])
 		[self.delegate talkProgressForSending:0.0];
-	else if (_progressSendingBlock)
+	if (_progressSendingBlock)
 		_progressSendingBlock (0.0);
-	else
-		[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkProgressForSendingNotification object: [NSNumber numberWithFloat:0.0]]];
-	
+	[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkProgressForSendingNotification object: [NSNumber numberWithFloat:0.0]]];
+
 	if (data) {
 		dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
 			NSError *error = nil;
@@ -493,10 +495,10 @@
 					float progress = ((float)packageIndex+1) / (float)packageCounter;
 					if ([self.delegate respondsToSelector:@selector(talkProgressForSending:)])
 						[self.delegate talkProgressForSending: progress];
-					else if (_progressSendingBlock)
+					if (_progressSendingBlock)
 						_progressSendingBlock (progress);
-					else
-						[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkProgressForSendingNotification object: [NSNumber numberWithFloat: progress]]];
+					[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkProgressForSendingNotification object: [NSNumber numberWithFloat: progress]]];
+					peer.state = (1.0 == progress ? BOMTalkPeerStateConnected : BOMTalkPeerStateTransfering);
 				});
 			}
 		});
@@ -509,10 +511,10 @@
 
 		if ([self.delegate respondsToSelector:@selector(talkProgressForSending:)])
 			[self.delegate talkProgressForSending:1.0];
-		else if (_progressSendingBlock)
+		if (_progressSendingBlock)
 			_progressSendingBlock (1.0);
-		else
-			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:kBOMTalkProgressForSendingNotification object: [NSNumber numberWithFloat:1.0]]];
+		[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkProgressForSendingNotification object: [NSNumber numberWithFloat:1.0]]];
+		peer.state = BOMTalkPeerStateConnected;
 	}
 }
 

@@ -28,7 +28,7 @@
 #import "BOMTalkPackage.h"
 #import "BOMTalkPeer.h"
 
-#define BOMTalkDebug 1
+// #define BOMTalkDebug 1
 
 /**
  Optional delegates to be called in their respective context.
@@ -96,20 +96,27 @@
  Notification for [talkProgressForReceiving]([BOMTalkDelegate talkDidShow:])
  @param object BOMTalkPeer
  */
-#define kBOMTalkDidShowNotification @"BOMTalkDidShowNotification"
-#define kBOMTalkDidHideNotification @"BOMTalkDidHideNotification"
-#define kBOMTalkDidConnectNotification @"BOMTalkDidConnectNotification"
-#define kBOMTalkDidDisconnectNotification @"BOMTalkDidDisconnectNotification"
-#define kBOMTalkReceivedNotification @"BOMTalkReceivedNotification"
-#define kBOMTalkUpdateNotification @"BOMTalkUpdateNotification"
-#define kBOMTalkFailedNotification @"BOMTalkFailedNotification"
-#define kBOMTalkProgressForReceivingNotification @"BOMTalkProgressForReceivingNotification"
-#define kBOMTalkProgressForSendingNotification @"BOMTalkProgressForSendingNotification"
+#define BOMTalkDidShowNotification @"BOMTalkDidShowNotification"
+#define BOMTalkDidHideNotification @"BOMTalkDidHideNotification"
+#define BOMTalkDidConnectNotification @"BOMTalkDidConnectNotification"
+#define BOMTalkDidDisconnectNotification @"BOMTalkDidDisconnectNotification"
+#define BOMTalkReceivedNotification @"BOMTalkReceivedNotification"
+#define BOMTalkUpdateNotification @"BOMTalkUpdateNotification"
+#define BOMTalkFailedNotification @"BOMTalkFailedNotification"
+#define BOMTalkProgressForReceivingNotification @"BOMTalkProgressForReceivingNotification"
+#define BOMTalkProgressForSendingNotification @"BOMTalkProgressForSendingNotification"
 
 typedef void (^BOMTalkBlock)(BOMTalkPeer *sender);
 typedef void (^BOMTalkMessageBlock)(BOMTalkPeer *sender, id<NSCoding> data);
 typedef void (^BOMTalkErrorBlock)(NSError *error);
 typedef void (^BOMTalkProgressBlock)(float progress);
+
+typedef enum {
+	BOMTalkModeNone = 0,
+	BOMTalkModeServer,
+	BOMTalkModeClient,
+	BOMTalkModePeer
+} BOMTalkMode;
 
 /**
  The core object class handles network interactions and keeps list of peers.
@@ -120,9 +127,15 @@ typedef void (^BOMTalkProgressBlock)(float progress);
 /** @name Properties */
 
 /**
- This mode mimics the GameKit mode you connect your APP with the network.
+ This mode mimics the GameKit mode you connect your APP with the network
+ @discussion One the following values:
+ 
+ `BOMTalkModeNone` - not attached to the network
+ `BOMTalkModeServer` - runs as server
+ `BOMTalkModeClient` - runs as client
+ `BOMTalkModePeer` - runs as both server and client
  */
-@property (nonatomic, readonly) GKSessionMode mode;
+@property (nonatomic, readonly) BOMTalkMode mode;
 
 /**
  Wether the connection runs as server.
@@ -136,6 +149,7 @@ typedef void (^BOMTalkProgressBlock)(float progress);
 
 /**
  In case the APP is connected to a server, this is the server peer object.
+ @warning If more than one server is connected to the network, this value contains the first server only.
  */
 @property (nonatomic, strong) BOMTalkPeer *serverPeer;
 
@@ -161,6 +175,7 @@ typedef void (^BOMTalkProgressBlock)(float progress);
 /**
  Adds a simple message to the timeline
  @param formatString Format string with optional parameters
+ @param ... optional parameters
  */
 - (void) addDebuggerMessage: (NSString*) formatString, ...;
 
@@ -178,20 +193,25 @@ typedef void (^BOMTalkProgressBlock)(float progress);
 + (BOMTalk*) sharedTalk;
 
 /**
- Starts the connection to the network.
- @param mode GKSessionModeServer = act as server, GKSessionModeClient = act as client, GKSessionModePeer = act as both server and peer
+ Starts the connection to the network in BOMTalkModePeer
  */
-- (void) startInMode:(GKSessionMode) mode;
+- (void) start;
+
+/**
+ Starts the connection to the network.
+ @param mode BOMTalkModeServer = act as server, BOMTalkModeClient = act as client, BOMTalkModePeer = act as both server and peer
+ */
+- (void) startWithMode:(BOMTalkMode) mode;
 
 /**
  Starts the connection to the network with block callbacks.
- @param mode GKSessionModeServer = act as server, GKSessionModeClient = act as client, GKSessionModePeer = act as both server and peer
+ @param mode BOMTalkModeServer = act as server, BOMTalkModeClient = act as client, BOMTalkModePeer = act as both server and peer
  @param showBlock Block to be called after peer is visible on the network
  @param hideBlock Block to be called when peer disappears
  @param connectBlock Block to be called when peer connects to network
  @param disconnectBlock Block to be called when peer disconnects from network
  */
-- (void) startInMode:(GKSessionMode) mode didShow:(BOMTalkBlock) showBlock didHide:(BOMTalkBlock) hideBlock didConnect:(BOMTalkBlock) connectBlock didDisconnect:(BOMTalkBlock) disconnectBlock;
+- (void) startWithMode:(BOMTalkMode) mode didShow:(BOMTalkBlock) showBlock didHide:(BOMTalkBlock) hideBlock didConnect:(BOMTalkBlock) connectBlock didDisconnect:(BOMTalkBlock) disconnectBlock;
 
 /**
  Stops the network connection in this APP.

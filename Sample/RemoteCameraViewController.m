@@ -60,7 +60,7 @@
 		_progressView.hidden = (progress == 1.0);
 		_progressView.progress = progress;
 	}];
-	[[BOMTalk sharedTalk] startInMode:GKSessionModePeer];
+	[[BOMTalk sharedTalk] start];
 }
 
 - (void) viewWillDisappear:(BOOL)animated {

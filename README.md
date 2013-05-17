@@ -43,6 +43,8 @@ Taking a remote photo from a different iPhone can be useful (e.g. recursive phot
 
 # Concepts
 
+As BOMTalk sits atop of [GameKit](http://bit.ly/iCr99E), you should probably become familiar with [GameKit](http://bit.ly/iCr99E)'s concepts first. For example, the `peerList` always contains all visible peers in a network, but visibility/availability is not the same as being connected to a network. Furthermore how a peer acts and responds depends on the state you connect to the network session: e.g. a server cannot connect a client, only vice versa. Although connecting as both server and client to the network (=peer, the default) is the most flexible option, you should double-check wether your logic/APP/protocol does fit in this scenario. It might sometimes even be necessary to reverse the technical client/server situation in order to get the UX right.
+
 BOMTalk needs only two classes to interact with: BOMTalk and to a lesser extend BOMTalkPeer. All you have to do is prepare your data to be NSCoding compatible for transmission and a little "protocol":
 
 ## Your Protocol
@@ -86,7 +88,7 @@ Blocks immensly simplify your code logic in your controller. As an example (exce
 
 	// SENDER
 	BOMTalk *talker = [BOMTalk sharedTalk];
-	[talker startInMode:GKSessionModePeer];
+	[talker start];
 	// select peer, then:
 	[talker connectToPeer: peer success:^(BOMTalkPeer *peer){
 		[talker sendMessage:kSendPhoto toPeer: peer withData: UIImageJPEGRepresentation(image, 1)];
@@ -94,7 +96,7 @@ Blocks immensly simplify your code logic in your controller. As an example (exce
 
 	// RECEIVER
 	BOMTalk *talker = [BOMTalk sharedTalk];
-	[talker startInMode:GKSessionModePeer];
+	[talker start];
 	[talker answerToMessage:kSendPhoto block:^(BOMTalkPeer *peer, id data) {
 		UIImage *image = [[UIImage alloc] initWithData: data];
 		UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
@@ -108,7 +110,7 @@ If you need a seperate object to react to your network messages or prefer the co
 	- (void) viewDidLoad {
 		BOMTalk *talker = [BOMTalk sharedTalk];
 		talker.delegate = self;
-		[talker startInMode:GKSessionModePeer];
+		[talker start];
 	}
 	- (void) talkDidConnect:(BOMTalkPeer*) peer {
 		[[BOMTalk sharedTalk] sendMessage:kRollStart toPeer: peer];
@@ -121,7 +123,7 @@ If you need a seperate object to react to your network messages or prefer the co
 	- (void) viewDidLoad {
 		BOMTalk *talker = [BOMTalk sharedTalk];
 		talker.delegate = self;
-		[talker startInMode:GKSessionModePeer];
+		[talker start];
 	}
 
 	- (void) talkReceived:(NSInteger) messageID fromPeer:(BOMTalkPeer*) sender withData:(id<NSCoding>) data {
@@ -134,13 +136,13 @@ If you need a seperate object to react to your network messages or prefer the co
 
 ## 3. Notifications
 
-If you need to handle messages in multiple objects, you can use iOS notifications: add an observer to the BOMTalkNotifications with your methods to be called. As an example (excerpt form the Pong example) if you want to send data from one device to another, here is an example with notifications:
+If you need to handle messages in multiple objects (multicasting), you can use iOS notifications: add an observer to the BOMTalkNotifications with your methods to be called. As an example (excerpt form the Pong example) if you want to send data from one device to another, here is an example with notifications:
 
 	// SENDER
 	- (void) viewDidLoad {
-		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(connectedTalk:) name:kBOMTalkDidConnectNotification object:nil];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(connectedTalk:) name:BOMTalkDidConnectNotification object:nil];
 		BOMTalk *talker = [BOMTalk sharedTalk];
-		[talker startInMode:GKSessionModePeer];
+		[talker start];
 		// select peer, then:
 		[talker connectToPeer: peer];
 	}
@@ -151,9 +153,9 @@ If you need to handle messages in multiple objects, you can use iOS notification
 
 	// RECEIVER
 	- (void) viewDidLoad {
-		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedTalk:) name:kBOMTalkReceivedNotification object:nil];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedTalk:) name:BOMTalkReceivedNotification object:nil];
 		BOMTalk *talker = [BOMTalk sharedTalk];
-		[talker startInMode:GKSessionModePeer];
+		[talker start];
 	}
 	- (void) receivedTalk: (NSNotification*) notification {
 		BOMTalkPeer *peer = notification.object[@"peer"];
@@ -165,7 +167,37 @@ If you need to handle messages in multiple objects, you can use iOS notification
 		}
 	}
 
-The three mechanisms are mutually exclusive for the same event type: e.g. for connecting devices you can either provide a block or a delegeate or receive a notifications for that event. But you can mix different event types and handle your own messages with a delegate but network message by means of notifications (although that hardly makes sense, but YMMV).
+For notifications, all additional data is sent in the `object` parameter as follows:
+
+- *BOMTalkReceivedNotification*
+	NSDictionary with keys:
+	`messageID` - NSNumber with then message ID
+	`peer` - BOMTalkPeer with the sending peer
+	`data` - id<NSCoding> (optional)
+
+- *BOMTalkProgressForReceivingNotification*
+	NSNumber with float [0.0 .. 1.0]
+
+- *BOMTalkProgressForSendingNotification*
+	NSNumber with float [0.0 .. 1.0]
+
+- *BOMTalkDidShowNotification*
+	BOMTalkPeer of the peer
+
+- *BOMTalkDidHideNotification*
+	BOMTalkPeer of the peer
+
+- *BOMTalkDidConnectNotification*
+	BOMTalkPeer of the peer
+
+- *BOMTalkDidDisconnectNotification*
+	BOMTalkPeer of the peer
+
+- *BOMTalkUpdateNotification*
+	BOMTalkPeer of the peer
+
+- *BOMTalkFailedNotification*
+	NSError describing the error
 
 # Installation
 
@@ -173,9 +205,13 @@ Copy the topmost `BOMTalk` folder to your project, add the `GameKit.framework` t
 
 # Version
 
+**0.91**
+
+- block, degelegates and notifications are *not* mutually exclusive anymore
+
 **0.9:**
 
-- a new XCode build target creates an [appledoc](http://gentlebytes.com/appledoc/) documentation from the sources.
+- a new XCode build target creates an [appledoc](http://gentlebytes.com/appledoc/) documentation from the sources
 - documentation to illustrate BOMTalk in practice
 
 **0.8:**
