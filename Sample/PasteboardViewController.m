@@ -26,9 +26,9 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
-	self.navigationItem.titleView = _progressView = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, 200, 44)];
-	_progressView.hidden = YES;
-	_progressView.progress = 0.5;
+	self.navigationItem.titleView = self.progressView = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, 200, 44)];
+	self.progressView.hidden = YES;
+	self.progressView.progress = 0.5;
 #ifdef BOMTalkDebug
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerShow)];
 #endif
@@ -52,16 +52,16 @@
 
 - (void) viewDidUnload {
 	[[NSNotificationCenter defaultCenter] removeObserver: self];
-	_textView = nil;
-	_imageView = nil;
-	_progressView = nil;
+	self.textView = nil;
+	self.imageView = nil;
+	self.progressView = nil;
 	[super viewDidUnload];
 }
 
 - (void) startView: (NSNotification*) notification {
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	[talker answerToUpdate:^(BOMTalkPeer *sender) {
-		[_listView reloadData];
+		[self.listView reloadData];
 	}];
 	[talker answerToMessage:kSendText block:^(BOMTalkPeer *peer, id data) {
 		[self showText: (NSString*) data];
@@ -72,12 +72,12 @@
 		[[UIPasteboard generalPasteboard] setData: data forPasteboardType:@"public.jpeg"];
 	}];
 	[talker progressForReceiving:^(float progress) {
-		_progressView.hidden = (progress == 1.0);
-		_progressView.progress = 1 - progress;
+		self.progressView.hidden = (progress == 1.0);
+		self.progressView.progress = 1 - progress;
 	}];
 	[talker progressForSending:^(float progress) {
-		_progressView.hidden = (progress == 1.0);
-		_progressView.progress = progress;
+		self.progressView.hidden = (progress == 1.0);
+		self.progressView.progress = progress;
 	}];
 	[[BOMTalk sharedTalk] start];
 	
@@ -111,24 +111,24 @@
 #pragma mark helper methods
 
 - (void) showImage:(UIImage*) image {
-	[_textView endEditing:YES];
-	_imageView.hidden = NO;
-	_imageView.image =  image;
-	_textView.hidden = YES;
+	[self.textView endEditing:YES];
+	self.imageView.hidden = NO;
+	self.imageView.image =  image;
+	self.textView.hidden = YES;
 }
 
 - (void) showText:(NSString*) text {
-	[_textView endEditing:YES];
-	_textView.hidden = NO;
-	_textView.text = text;
-	_imageView.hidden = YES;
+	[self.textView endEditing:YES];
+	self.textView.hidden = NO;
+	self.textView.text = text;
+	self.imageView.hidden = YES;
 }
 
 #pragma mark delegate callbacks
 
 - (BOOL) textView:(UITextView*) textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString*) text {
 	if ([text isEqual:@"\n"]) {
-		[_textView endEditing:YES];
+		[self.textView endEditing:YES];
 		return NO;
 	}
 	return YES;
@@ -149,14 +149,14 @@
 
 - (void) tableView:(UITableView*) tableView didSelectRowAtIndexPath:(NSIndexPath*) indexPath {
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
-	[_textView endEditing:YES];
+	[self.textView endEditing:YES];
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	BOMTalkPeer *peer = talker.peerList[indexPath.row];
 	[talker connectToPeer: peer success:^(BOMTalkPeer *peer){
-		if (_imageView.hidden)
-			[talker sendMessage:kSendText toPeer:peer withData: _textView.text];
+		if (self.imageView.hidden)
+			[talker sendMessage:kSendText toPeer:peer withData: self.textView.text];
 		else
-			[talker sendMessage:kSendImage toPeer:peer withData: UIImageJPEGRepresentation(_imageView.image, 0.9)];
+			[talker sendMessage:kSendImage toPeer:peer withData: UIImageJPEGRepresentation(self.imageView.image, 0.9)];
 	}];
 }
 

@@ -205,6 +205,10 @@ Copy the topmost `BOMTalk` folder to your project, add the `GameKit.framework` t
 
 # Version
 
+**0.92**
+
+- dropped asServer property, fixed over-sorted peerList array
+
 **0.91**
 
 - block, degelegates and notifications are *not* mutually exclusive anymore

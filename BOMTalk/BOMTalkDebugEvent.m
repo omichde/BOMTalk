@@ -20,16 +20,16 @@
 
 - (id) initWithEventFromPeer:(BOMTalkPeer*) sourcePeer toPeer:(BOMTalkPeer*) destPeer message: (NSString*) message {
 	if ((self = [super init])) {
-		_sourcePeer = sourcePeer;
-		_destPeer = destPeer;
-		_message = message;
-		_timestamp = [NSDate dateWithTimeIntervalSinceNow:0];
+		self.sourcePeer = sourcePeer;
+		self.destPeer = destPeer;
+		self.message = message;
+		self.timestamp = [NSDate dateWithTimeIntervalSinceNow:0];
 	}
 	return self;
 }
 
 - (NSString*) description {
-	return [NSString stringWithFormat:@"%@: %@", _timestamp, _message];
+	return [NSString stringWithFormat:@"%@: %@", self.timestamp, self.message];
 }
 
 @end

@@ -11,30 +11,30 @@
 	self = [super init];
 	
 	if (self) {
-		_peerID = peer;
-		_name = name;
-		_state = BOMTalkPeerStateIdle;
-		_userInfo = [[NSMutableDictionary alloc] init];
-		_timestamp = [NSDate timeIntervalSinceReferenceDate];
+		self.peerID = peer;
+		self.name = name;
+		self.state = BOMTalkPeerStateIdle;
+		self.userInfo = [[NSMutableDictionary alloc] init];
+		self.timestamp = [NSDate timeIntervalSinceReferenceDate];
 	}
 	
 	return self;
 }
 
 - (void) update {
-	_timestamp = [NSDate timeIntervalSinceReferenceDate];
+	self.timestamp = [NSDate timeIntervalSinceReferenceDate];
 }
 
 - (BOOL) isEqual:(id) object {
-	return [_peerID isEqual: ((BOMTalkPeer*)object).peerID];
+	return [self.peerID isEqual: ((BOMTalkPeer*)object).peerID];
 }
 
 - (NSUInteger) hash {
-	return [_peerID hash];
+	return [self.peerID hash];
 }
 
 - (NSString*) description {
-	return [NSString stringWithFormat:@"%@ (%@) state:%d", _name, _peerID, _state];
+	return [NSString stringWithFormat:@"%@ (%@) state:%d", self.name, self.peerID, self.state];
 }
 
 

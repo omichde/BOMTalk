@@ -28,7 +28,7 @@
 #import "BOMTalkPackage.h"
 #import "BOMTalkPeer.h"
 
-// #define BOMTalkDebug 1
+#define BOMTalkDebug 1
 
 /**
  Optional delegates to be called in their respective context.
@@ -136,11 +136,6 @@ typedef enum {
  `BOMTalkModePeer` - runs as both server and client
  */
 @property (nonatomic, readonly) BOMTalkMode mode;
-
-/**
- Wether the connection runs as server.
- */
-@property (nonatomic, readonly) BOOL asServer;
 
 /**
  Peer data of the APP itself in the network.
