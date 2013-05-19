@@ -34,7 +34,7 @@
 }
 
 - (NSString*) description {
-	return [NSString stringWithFormat:@"%@ (%@) state:%d", self.name, self.peerID, self.state];
+	return [NSString stringWithFormat:@"%@ (%@) state:%d, userInfo: %@", self.name, self.peerID, self.state, self.userInfo];
 }
 
 

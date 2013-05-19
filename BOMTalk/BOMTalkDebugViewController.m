@@ -16,6 +16,7 @@
 @property (strong, nonatomic) NSMutableArray *peerList;
 @property (strong, nonatomic) NSMutableArray *eventList;
 @property (assign, nonatomic) CGFloat scale;
+@property (strong, nonatomic) NSTimer *updateTimer;
 @end
 
 @implementation BOMTalkDebugViewController
@@ -107,9 +108,17 @@
 	eventLabel.userInteractionEnabled = NO;
 	[self.scrollContainer addSubview: eventLabel];
 	[self.eventList addObject: event];
-	
+
+	// defer updates
+	if (self.updateTimer)
+		[self.updateTimer invalidate];
+	self.updateTimer = [NSTimer scheduledTimerWithTimeInterval:1 target:self selector:@selector(update) userInfo:nil repeats:NO];
+}
+
+- (void) update {
 	[self layout: self.scale];
 	[self.scrollContainer scrollRectToVisible:CGRectMake(self.scrollContainer.contentOffset.x, self.scrollContainer.contentSize.height-1, 1, 1) animated:NO];
+	self.updateTimer = nil;
 }
 
 - (void) layout: (CGFloat) scale {
@@ -119,9 +128,11 @@
 		BOMTalkDebugEvent *startEvent = self.eventList[0];
 		for (int index=0; index < self.eventList.count; index++) {
 			UILabel *label = (UILabel*) [self.scrollContainer viewWithTag:kTagEvent + index];
-			BOMTalkDebugEvent *event = self.eventList[index];
-			CGFloat y = [event.timestamp timeIntervalSinceDate: startEvent.timestamp] * scale;
-			label.frame = CGRectMake (label.frame.origin.x, y, label.frame.size.width, label.frame.size.height);
+			if (label) {
+				BOMTalkDebugEvent *event = self.eventList[index];
+				CGFloat y = [event.timestamp timeIntervalSinceDate: startEvent.timestamp] * scale;
+				label.frame = CGRectMake (label.frame.origin.x, y, label.frame.size.width, label.frame.size.height);
+			}
 		}
 		BOMTalkDebugEvent *endEvent = [self.eventList lastObject];
 		height += ceil ([endEvent.timestamp timeIntervalSinceDate: startEvent.timestamp] * scale + kPeerWidth);

@@ -23,10 +23,6 @@
 @property (readwrite, nonatomic, copy) BOMTalkBlock updateBlock;
 @property (readwrite, nonatomic, copy) BOMTalkErrorBlock failureBlock;
 
-@property (strong, nonatomic) BOMTalkPeer *connectPeer;
-@property (readwrite, nonatomic, copy) BOMTalkBlock connectSuccessBlock;
-@property (readwrite, nonatomic, copy) BOMTalkErrorBlock connectFailureBlock;
-
 @property (readwrite, nonatomic, copy) BOMTalkProgressBlock progressReceivingBlock;
 @property (readwrite, nonatomic, copy) BOMTalkProgressBlock progressSendingBlock;
 
@@ -143,8 +139,8 @@
 	[self.messageList removeAllObjects];
 	self.updateBlock = nil;
 	self.failureBlock = nil;
-	self.connectSuccessBlock = nil;
-	self.connectFailureBlock = nil;
+//	self.connectSuccessBlock = nil;
+//	self.connectFailureBlock = nil;
 	self.progressReceivingBlock = nil;
 	self.progressSendingBlock = nil;
 }
@@ -224,10 +220,6 @@
 }
 
 - (void) connectToPeer:(BOMTalkPeer*) peer success:(BOMTalkBlock) successBlock failure:(BOMTalkErrorBlock) failureBlock {
-	if (self.connectPeer && ![peer isEqual:self.connectPeer]) {
-		[self.debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer:self.selfPeer toPeer: peer message:@"Connecting to another"]];
-		return;
-	}
 	if (BOMTalkPeerStateConnecting == peer.state) {
 		[self.debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer:self.selfPeer toPeer: peer message:@"Connecting in progress"]];
 		return;
@@ -240,10 +232,13 @@
 			successBlock(peer);
 	}
 	else {
-		self.connectPeer = peer;
-		self.connectSuccessBlock = successBlock;
-		self.connectFailureBlock = failureBlock;
 		peer.state = BOMTalkPeerStateConnecting;
+		peer.successBlock = successBlock;
+		peer.failureBlock = failureBlock;
+//
+//		self.connectPeer = peer;
+//		self.connectSuccessBlock = successBlock;
+//		self.connectFailureBlock = failureBlock;
 		[self.sessionNetwork connectToPeer:peer.peerID withTimeout:10.0];
 	}
 }
@@ -251,15 +246,10 @@
 - (void) disconnectPeer:(BOMTalkPeer*) peer {
 	[self.debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer:self.selfPeer toPeer: peer message:@"Disconnecting"]];
 	[self.sessionNetwork disconnectPeerFromAllPeers: peer.peerID];
-	if (self.connectPeer && [peer isEqual:self.connectPeer]) {
-		if ([self.delegate respondsToSelector:@selector(talkDidDisconnect:)])
-			[self.delegate talkDidDisconnect: peer];
-		if (self.connectFailureBlock)
-			self.connectFailureBlock(nil);
-		self.connectPeer = nil;
-		self.connectSuccessBlock = nil;
-		self.connectFailureBlock = nil;
-	}
+	if ([self.delegate respondsToSelector:@selector(talkDidDisconnect:)])
+		[self.delegate talkDidDisconnect: peer];
+	if (peer.failureBlock)
+		peer.failureBlock(nil);
 }
 
 - (void) session:(GKSession*) session didReceiveConnectionRequestFromPeer:(NSString*) peerID {
@@ -269,18 +259,15 @@
 }
 
 - (void) session:(GKSession*) session connectionWithPeerFailed:(NSString*) peerID withError:(NSError*) error {
-	[self.debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer: [self peerForPeerID:peerID] toPeer: nil message:@"Failed %@", peerID]];
+	BOMTalkPeer *peer = [self peerForPeerID:peerID];
+	[self.debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer: peer toPeer: nil message:@"Failed %@", peerID]];
 //	[self.peerList removeObject: [self peerForPeerID:peerID]];
 	if ([self.delegate respondsToSelector:@selector(talkFailed:)])
 		[self.delegate talkFailed:error];
-	if (self.connectFailureBlock) {
-		self.connectFailureBlock (error);
-		self.connectPeer = nil;
-		self.connectSuccessBlock = nil;
-		self.connectFailureBlock = nil;
-	}
 	if (self.failureBlock)
 		self.failureBlock (error);
+	if (peer.failureBlock)
+		peer.failureBlock (error);
 	[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkFailedNotification object:error]];
 }
 
@@ -311,7 +298,7 @@
 		case GKPeerStateUnavailable: {
 			[self.debugViewController addEvent: [BOMTalkDebugEvent eventFromPeer: peer toPeer: self.selfPeer message:@"Un-Avail"]];
 			[self.peerList removeObject:peer];
-			if ([self.serverPeer.peerID isEqual:peer.peerID])
+			if ([self.serverPeer isEqual:peer])
 				self.serverPeer = nil;
 
 			if ([self.delegate respondsToSelector:@selector(talkDidHide:)])
@@ -339,11 +326,10 @@
 				[self.delegate talkDidConnect: peer];
 			if (self.connectBlock)
 				self.connectBlock (peer);
-			if (self.connectSuccessBlock)
-				self.connectSuccessBlock (peer);
-			self.connectPeer = nil;
-			self.connectSuccessBlock = nil;
-			self.connectFailureBlock = nil;
+			if (peer.successBlock)
+				peer.successBlock (peer);
+			peer.successBlock = nil;
+			peer.failureBlock = nil;
 			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkDidConnectNotification object: peer]];
 		}
 		break;
@@ -358,9 +344,10 @@
 				[self.delegate talkDidDisconnect: peer];
 			if (self.disconnectBlock)
 				self.disconnectBlock (peer);
-			self.connectPeer = nil;
-			self.connectSuccessBlock = nil;
-			self.connectFailureBlock = nil;
+			if (peer.failureBlock)
+				peer.failureBlock (nil);
+			peer.successBlock = nil;
+			peer.failureBlock = nil;
 			[[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:BOMTalkDidDisconnectNotification object: peer]];
 		}
 		break;

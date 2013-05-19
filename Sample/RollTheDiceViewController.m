@@ -33,8 +33,8 @@
 
 - (void) viewWillAppear:(BOOL) animated {
 	[super viewWillAppear:animated];
-	_loadingView.hidden = YES;
-	_numberView.text = _infoView.text = @"";
+	self.loadingView.hidden = self.rollButton.hidden = YES;
+	self.numberView.text = self.infoView.text = @"";
 
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	talker.delegate = self;
@@ -52,10 +52,10 @@
 }
 
 - (void) viewDidUnload {
-	_numberView = nil;
-	_rollButton = nil;
-	_loadingView = nil;
-	_infoView = nil;
+	self.numberView = nil;
+	self.rollButton = nil;
+	self.loadingView = nil;
+	self.infoView = nil;
 	[super viewDidUnload];
 }
 
@@ -75,23 +75,32 @@
 
 - (void) talkDidConnect:(BOMTalkPeer*) peer {
 	BOMTalk *talker = [BOMTalk sharedTalk];
+	// wait until all connected...
+	for (BOMTalkPeer *peer in talker.peerList)
+		if (peer.state < BOMTalkPeerStateConnected)
+			return;
 #ifdef BOMTalkDebug
 	[talker addDebuggerMessage:@"%@", talker.selfPeer.userInfo[@"number"]];
 #endif
-	if ([talker.selfPeer.userInfo[@"number"] integerValue] != -1)
+	if ([talker.selfPeer.userInfo[@"starter"] boolValue]) {
+		DLog(@"starting...");
 		[[BOMTalk sharedTalk] sendToAllMessage:kRollStart];
+	}
+	else
+		DLog(@"%@", talker.selfPeer);
 }
 
 - (void) talkReceived:(NSInteger) messageID fromPeer:(BOMTalkPeer*) sender withData:(id<NSCoding>) data {
 	switch (messageID) {
 		case kRollStart: {
+			DLog(@"rec: %d %@ %@", messageID, sender, [BOMTalk sharedTalk].selfPeer);
 			[self reset];
-			_rollButton.hidden = YES;
-			_loadingView.hidden = NO;
-			_numberView.text = @"";
-			_numberView.textColor = [UIColor grayColor];
+			self.rollButton.hidden = YES;
+			self.loadingView.hidden = NO;
+			self.numberView.text = @"";
+			self.numberView.textColor = [UIColor grayColor];
 			NSNumber *myRoll = [NSNumber numberWithInt: random() % 100];
-			_numberView.text = [NSString stringWithFormat:@"%@", myRoll];
+			self.numberView.text = [NSString stringWithFormat:@"%@", myRoll];
 			[[BOMTalk sharedTalk] sendMessage:kRollAnswer toPeer:sender withData: myRoll];
 		}
 		break;
@@ -108,12 +117,12 @@
 					maxPeer = peer;
 			}
 			if (completed) {
-				_rollButton.hidden = NO;
-				_loadingView.hidden = YES;
+				self.rollButton.hidden = NO;
+				self.loadingView.hidden = YES;
 				if ([talker.selfPeer isEqual: maxPeer])
-					_numberView.textColor = [UIColor greenColor];
+					self.numberView.textColor = [UIColor greenColor];
 				else
-					_numberView.textColor = [UIColor redColor];
+					self.numberView.textColor = [UIColor redColor];
 				for (BOMTalkPeer *peer in talker.peerList) {
 					if ([maxPeer isEqual: peer])
 						[talker sendMessage:kRollWinner toPeer:peer];
@@ -125,16 +134,16 @@
 		break;
 
 		case kRollWinner: {
-			_rollButton.hidden = NO;
-			_loadingView.hidden = YES;
-			_numberView.textColor = [UIColor greenColor];
+			self.rollButton.hidden = NO;
+			self.loadingView.hidden = YES;
+			self.numberView.textColor = [UIColor greenColor];
 		}
 		break;
 
 		case kRollLooser: {
-			_rollButton.hidden = NO;
-			_loadingView.hidden = YES;
-			_numberView.textColor = [UIColor redColor];
+			self.rollButton.hidden = NO;
+			self.loadingView.hidden = YES;
+			self.numberView.textColor = [UIColor redColor];
 		}
 		break;
 
@@ -144,7 +153,9 @@
 }
 
 - (void) talkUpdate:(BOMTalkPeer*) peer {
-	_infoView.text = [NSString stringWithFormat:@"%d players", [BOMTalk sharedTalk].peerList.count];
+	BOMTalk *talker = [BOMTalk sharedTalk];
+	self.rollButton.hidden = (talker.peerList.count == 0 || !self.loadingView.hidden);
+	self.infoView.text = [NSString stringWithFormat:@"%d players", talker.peerList.count];
 }
 
 - (void) talkNetworkFailed:(NSError*) error {
@@ -156,26 +167,30 @@
 }
 
 - (void) reset {
-	_rollButton.hidden = NO;
-	_loadingView.hidden = YES;
-	_numberView.text = @"";
-	_numberView.textColor = [UIColor blackColor];
+	self.rollButton.hidden = NO;
+	self.loadingView.hidden = YES;
+	self.numberView.text = @"";
+	self.numberView.textColor = [UIColor blackColor];
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	talker.selfPeer.userInfo[@"number"] = [NSNumber numberWithInt: -1];
 	for (BOMTalkPeer *peer in talker.peerList)
 		peer.userInfo[@"number"] = [NSNumber numberWithInt:-1];
+	talker.selfPeer.userInfo[@"starter"] = [NSNumber numberWithBool:NO];
 }
 
 - (IBAction) roll {
 	[self reset];
-	_rollButton.hidden = YES;
-	_loadingView.hidden = NO;
-	_numberView.textColor = [UIColor grayColor];
 
 	NSNumber *myRoll = [NSNumber numberWithInt: random() % 100];
-	_numberView.text = [NSString stringWithFormat:@"%@", myRoll];
+	self.numberView.text = [NSString stringWithFormat:@"%@", myRoll];
+	self.rollButton.hidden = YES;
+	self.loadingView.hidden = NO;
+	self.numberView.textColor = [UIColor grayColor];
+
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	talker.selfPeer.userInfo[@"number"] = myRoll;
+	talker.selfPeer.userInfo[@"starter"] = [NSNumber numberWithBool:YES];
+	DLog(@"%@\n%@", talker.selfPeer, talker.peerList);
 	for (BOMTalkPeer *peer in talker.peerList)
 		[talker connectToPeer: peer];
 }
