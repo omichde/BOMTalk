@@ -5,9 +5,6 @@
 
 #import <Foundation/Foundation.h>
 
-typedef void (^BOMTalkPeerBlock)(id sender);
-typedef void (^BOMTalkPeerErrorBlock)(NSError *error);
-
 typedef enum {
 	BOMTalkPeerStateIdle = 1,
 	BOMTalkPeerStateVisible,
@@ -45,10 +42,6 @@ typedef enum {
  Internal timestamp of the last interaction of a peer with the network. Used to cut off the oldest peer to keep one slot free.
  */
 @property (assign, nonatomic) NSTimeInterval timestamp;
-
-@property (readwrite, nonatomic, copy) BOMTalkPeerBlock successBlock;
-
-@property (readwrite, nonatomic, copy) BOMTalkPeerErrorBlock failureBlock;
 
 /**
  Create a new peer.

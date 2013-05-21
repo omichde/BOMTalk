@@ -73,27 +73,9 @@
 
 #pragma mark talk delegates
 
-- (void) talkDidConnect:(BOMTalkPeer*) peer {
-	BOMTalk *talker = [BOMTalk sharedTalk];
-	// wait until all connected...
-	for (BOMTalkPeer *peer in talker.peerList)
-		if (peer.state < BOMTalkPeerStateConnected)
-			return;
-#ifdef BOMTalkDebug
-	[talker addDebuggerMessage:@"%@", talker.selfPeer.userInfo[@"number"]];
-#endif
-	if ([talker.selfPeer.userInfo[@"starter"] boolValue]) {
-		DLog(@"starting...");
-		[[BOMTalk sharedTalk] sendToAllMessage:kRollStart];
-	}
-	else
-		DLog(@"%@", talker.selfPeer);
-}
-
 - (void) talkReceived:(NSInteger) messageID fromPeer:(BOMTalkPeer*) sender withData:(id<NSCoding>) data {
 	switch (messageID) {
 		case kRollStart: {
-			DLog(@"rec: %d %@ %@", messageID, sender, [BOMTalk sharedTalk].selfPeer);
 			[self reset];
 			self.rollButton.hidden = YES;
 			self.loadingView.hidden = NO;
@@ -158,11 +140,7 @@
 	self.infoView.text = [NSString stringWithFormat:@"%d players", talker.peerList.count];
 }
 
-- (void) talkNetworkFailed:(NSError*) error {
-	[self reset];
-}
-
-- (void) talkConnectToPeerFailed:(NSError*) error {
+- (void) talkFailed:(NSError*) error {
 	[self reset];
 }
 
@@ -192,7 +170,7 @@
 	talker.selfPeer.userInfo[@"starter"] = [NSNumber numberWithBool:YES];
 	DLog(@"%@\n%@", talker.selfPeer, talker.peerList);
 	for (BOMTalkPeer *peer in talker.peerList)
-		[talker connectToPeer: peer];
+		[talker sendMessage:kRollStart toPeer: peer];
 }
 
 @end

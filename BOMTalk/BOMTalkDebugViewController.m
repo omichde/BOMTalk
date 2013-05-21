@@ -70,7 +70,11 @@
 }
 
 - (void) addEvent: (BOMTalkDebugEvent*) event {
-	if (event.sourcePeer && ![self.peerList containsObject: event.sourcePeer])
+	if (!event.sourcePeer) {
+		NSLog(@"Missing sourcePeer: %@", event);
+		return;
+	}
+	if (![self.peerList containsObject: event.sourcePeer])
 		[self addPeer:event.sourcePeer];
 	if (event.destPeer && ![self.peerList containsObject: event.destPeer])
 		[self addPeer:event.destPeer];
@@ -94,7 +98,7 @@
 		}
 	}
 	else {
-		eventLabel.frame = CGRectMake (0, 0, kPeerWidth, kPeerWidth);
+		eventLabel.frame = CGRectMake (kPeerWidth * [self.peerList indexOfObject: event.sourcePeer], 0, kPeerWidth, kPeerWidth);
 		eventLabel.textAlignment = UITextAlignmentCenter;
 	}
 	eventLabel.text = event.message;

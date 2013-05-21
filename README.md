@@ -43,7 +43,7 @@ Taking a remote photo from a different iPhone can be useful (e.g. recursive phot
 
 # Concepts
 
-As BOMTalk sits atop of [GameKit](http://bit.ly/iCr99E), you should probably become familiar with [GameKit](http://bit.ly/iCr99E)'s concepts first. For example, the `peerList` always contains all visible peers in a network, but visibility/availability is not the same as being connected to a network. Furthermore how a peer acts and responds depends on the state you connect to the network session: e.g. a server cannot connect a client, only vice versa. Although connecting as both server and client to the network (=peer, the default) is the most flexible option, you should double-check wether your logic/APP/protocol does fit in this scenario. It might sometimes even be necessary to reverse the technical client/server situation in order to get the UX right.
+As BOMTalk sits atop of [GameKit](http://bit.ly/iCr99E), you should probably become familiar with [GameKit](http://bit.ly/iCr99E)'s concepts first. In contrast to GK and to minimize teh API, states and methods, BOMTalk auto-connects to all visible peers in GKSessionPeerMode.
 
 BOMTalk needs only two classes to interact with: BOMTalk and to a lesser extend BOMTalkPeer. All you have to do is prepare your data to be NSCoding compatible for transmission and a little "protocol":
 
@@ -63,7 +63,7 @@ Testing your "protocol" can be an extremely tedious task: modelling states in AP
 
 ## BOMTalk, BOMTalkPeer, BOMTalkPackage
 
-[BOMTalk]([BOMTalk]) is the primary class your controller interacts with. It's meant to be used as a singleton and encapsulates all networking and objects. Each peer, which BOMTalk connects and talks to, is held in a BOMTalkPeer class. If you like to attach additional data to a peer, use its [userInfo]([BOMTalkPeer userInfo]) dictionary for that purpose. Internally BOMTalkPackage is used to transfer data between peers but that is the least interessing class for you (generally you interact with BOMTalk 95% and 5% with BOMTalkPeer).
+[BOMTalk]([BOMTalk]) is the primary class your controller interacts with. It's meant to be used as a singleton and encapsulates all networking and objects. Each peer, which BOMTalk connects and talks to, is encapsulated in a BOMTalkPeer class. If you like to attach additional data to a peer, use its [userInfo]([BOMTalkPeer userInfo]) dictionary for that purpose. Internally BOMTalkPackage is used to transfer data between peers but that is the least interessing class for you (generally you interact with BOMTalk 95% and 5% with BOMTalkPeer).
 
 ## Data and Progress
 
@@ -79,7 +79,6 @@ BOMTalk consolidates GameKits APIs and internal techniques by providing a BOMTal
 
 - answering to incoming messages
 - progess metrics for outgoing and incoming data
-- callbacks for connecting to or disconnects from a peer
 - general network updates
 
 ## 1. Blocks
@@ -89,10 +88,7 @@ Blocks immensly simplify your code logic in your controller. As an example (exce
 	// SENDER
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	[talker start];
-	// select peer, then:
-	[talker connectToPeer: peer success:^(BOMTalkPeer *peer){
-		[talker sendMessage:kSendPhoto toPeer: peer withData: UIImageJPEGRepresentation(image, 1)];
-	}];
+	[talker sendMessage:kSendPhoto toPeer: peer withData: UIImageJPEGRepresentation(image, 1)];
 
 	// RECEIVER
 	BOMTalk *talker = [BOMTalk sharedTalk];
@@ -112,11 +108,10 @@ If you need a seperate object to react to your network messages or prefer the co
 		talker.delegate = self;
 		[talker start];
 	}
-	- (void) talkDidConnect:(BOMTalkPeer*) peer {
-		[[BOMTalk sharedTalk] sendMessage:kRollStart toPeer: peer];
-	}
+
 	- (IBAction) roll {
-		[[BOMTalk sharedTalk] connectToPeer: peer];
+		// select peer, then
+		[talker sendMessage:kRollStart toPeer: peer];
 	}
 
 	// RECEIVER
@@ -144,11 +139,7 @@ If you need to handle messages in multiple objects (multicasting), you can use i
 		BOMTalk *talker = [BOMTalk sharedTalk];
 		[talker start];
 		// select peer, then:
-		[talker connectToPeer: peer];
-	}
-	- (void) connectedTalk: (NSNotification*) notification {
-		CGPoint pos = CGPointMake(_ballView.center.x + _vector.x, _ballView.center.y + _vector.y);
-		[[BOMTalk sharedTalk] sendMessage:kGameBall toPeer:notification.object withData: @{@"x": [NSNumber numberWithFloat:pos.x], @"y": [NSNumber numberWithFloat:pos.y]}];
+		[[BOMTalk sharedTalk] sendMessage:kGameBall toPeer:peer withData: @{@"x": [NSNumber numberWithFloat:pos.x], @"y": [NSNumber numberWithFloat:pos.y]}];
 	}
 
 	// RECEIVER
@@ -181,18 +172,6 @@ For notifications, all additional data is sent in the `object` parameter as foll
 - *BOMTalkProgressForSendingNotification*
 	NSNumber with float [0.0 .. 1.0]
 
-- *BOMTalkDidShowNotification*
-	BOMTalkPeer of the peer
-
-- *BOMTalkDidHideNotification*
-	BOMTalkPeer of the peer
-
-- *BOMTalkDidConnectNotification*
-	BOMTalkPeer of the peer
-
-- *BOMTalkDidDisconnectNotification*
-	BOMTalkPeer of the peer
-
 - *BOMTalkUpdateNotification*
 	BOMTalkPeer of the peer
 
@@ -205,9 +184,15 @@ Copy the topmost `BOMTalk` folder to your project, add the `GameKit.framework` t
 
 # Version
 
+**0.93**
+
+- minimized API, fixed samples
+- peerList now contains connected peers
+
 **0.92**
 
-- dropped asServer property, fixed over-sorted peerList array
+- dropped asServer property
+- fixed over-sorted peerList array
 
 **0.91**
 
@@ -257,7 +242,7 @@ Copy the topmost `BOMTalk` folder to your project, add the `GameKit.framework` t
 
 Oliver Michalak - [oliver@werk01.de](mailto:oliver@werk01.de) - [@omichde](http://twitter.com/omichde)
 
-## Tags
+## Keywords
 
 iOS, GameKit, Bluetooth, WiFi, ad hoc, network, blocks, delegate, multicast
 

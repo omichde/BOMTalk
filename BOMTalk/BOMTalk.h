@@ -28,36 +28,13 @@
 #import "BOMTalkPackage.h"
 #import "BOMTalkPeer.h"
 
-#define BOMTalkDebug 1
+//#define BOMTalkDebug 1
 
 /**
  Optional delegates to be called in their respective context.
  */
 @protocol BOMTalkDelegate <NSObject>
 @optional
-/**
- A peer appeared on the network. You are not connected to this peer automatically.
- @param peer The peer visible to the network.
- */
-- (void) talkDidShow:(BOMTalkPeer*) peer;
-
-/**
- A peer hides from the network, which can either happen by the peer hiding itself or the peer being disconnected from the network entirely.
- @param peer The peer hiding from the network.
- */
-- (void) talkDidHide:(BOMTalkPeer*) peer;
-
-/**
- A peer connected to the network, probably as an answer to your connectToPeer: call.
- @param peer The newly connected peer.
- */
-- (void) talkDidConnect:(BOMTalkPeer*) peer;
-
-/**
- A peer disconnected from the network.
- @param peer The recently disconnected peer.
- */
-- (void) talkDidDisconnect:(BOMTalkPeer*) peer;
 
 /**
  You received a message from a peer including its data.
@@ -96,10 +73,6 @@
  Notification for [talkProgressForReceiving]([BOMTalkDelegate talkDidShow:])
  @param object BOMTalkPeer
  */
-#define BOMTalkDidShowNotification @"BOMTalkDidShowNotification"
-#define BOMTalkDidHideNotification @"BOMTalkDidHideNotification"
-#define BOMTalkDidConnectNotification @"BOMTalkDidConnectNotification"
-#define BOMTalkDidDisconnectNotification @"BOMTalkDidDisconnectNotification"
 #define BOMTalkReceivedNotification @"BOMTalkReceivedNotification"
 #define BOMTalkUpdateNotification @"BOMTalkUpdateNotification"
 #define BOMTalkFailedNotification @"BOMTalkFailedNotification"
@@ -111,13 +84,6 @@ typedef void (^BOMTalkMessageBlock)(BOMTalkPeer *sender, id<NSCoding> data);
 typedef void (^BOMTalkErrorBlock)(NSError *error);
 typedef void (^BOMTalkProgressBlock)(float progress);
 
-typedef enum {
-	BOMTalkModeNone = 0,
-	BOMTalkModeServer,
-	BOMTalkModeClient,
-	BOMTalkModePeer
-} BOMTalkMode;
-
 /**
  The core object class handles network interactions and keeps list of peers.
  You need to include the GameKit.framework.
@@ -127,26 +93,10 @@ typedef enum {
 /** @name Properties */
 
 /**
- This mode mimics the GameKit mode you connect your APP with the network
- @discussion One the following values:
- 
- `BOMTalkModeNone` - not attached to the network
- `BOMTalkModeServer` - runs as server
- `BOMTalkModeClient` - runs as client
- `BOMTalkModePeer` - runs as both server and client
- */
-@property (nonatomic, readonly) BOMTalkMode mode;
-
-/**
  Peer data of the APP itself in the network.
+ nil if not connected to network
  */
 @property (nonatomic, strong) BOMTalkPeer *selfPeer;
-
-/**
- In case the APP is connected to a server, this is the server peer object.
- @warning If more than one server is connected to the network, this value contains the first server only.
- */
-@property (nonatomic, strong) BOMTalkPeer *serverPeer;
 
 /**
  List of all peers known to the network.
@@ -168,11 +118,12 @@ typedef enum {
 - (void) showDebuggerFromViewController:(UIViewController*) sourceViewController;
 
 /**
- Adds a simple message to the timeline
+ prints a simple message to the timeline
+ @param peer Sender of the message
  @param formatString Format string with optional parameters
  @param ... optional parameters
  */
-- (void) addDebuggerMessage: (NSString*) formatString, ...;
+- (void) printDebugger: (BOMTalkPeer*) peer withMessage: (NSString*) formatString, ...;
 
 /**
  Hides the network debugger.
@@ -188,45 +139,14 @@ typedef enum {
 + (BOMTalk*) sharedTalk;
 
 /**
- Starts the connection to the network in BOMTalkModePeer
+ Starts the connection to the network
  */
 - (void) start;
-
-/**
- Starts the connection to the network.
- @param mode BOMTalkModeServer = act as server, BOMTalkModeClient = act as client, BOMTalkModePeer = act as both server and peer
- */
-- (void) startWithMode:(BOMTalkMode) mode;
-
-/**
- Starts the connection to the network with block callbacks.
- @param mode BOMTalkModeServer = act as server, BOMTalkModeClient = act as client, BOMTalkModePeer = act as both server and peer
- @param showBlock Block to be called after peer is visible on the network
- @param hideBlock Block to be called when peer disappears
- @param connectBlock Block to be called when peer connects to network
- @param disconnectBlock Block to be called when peer disconnects from network
- */
-- (void) startWithMode:(BOMTalkMode) mode didShow:(BOMTalkBlock) showBlock didHide:(BOMTalkBlock) hideBlock didConnect:(BOMTalkBlock) connectBlock didDisconnect:(BOMTalkBlock) disconnectBlock;
 
 /**
  Stops the network connection in this APP.
  */
 - (void) stop;
-
-/**
- Temporarily stops the network and re-connect to it again.
- */
-- (void) reset;
-
-/**
- As a server, you can show yourself to the network.
- */
-- (void) show;
-
-/**
- As a server, you can hide from the network.
- */
-- (void) hide;
 
 /** @name Blocks interface */
 
@@ -268,35 +188,6 @@ typedef enum {
  @param peerID GameKit peer ID
  */
 - (BOMTalkPeer*) peerForPeerID:(NSString*) peerID;
-
-/** @name Connecting, Disconnecting */
-
-/**
- Connecto to a peer.
- @param peer Connect to this peer
- */
-- (void) connectToPeer:(BOMTalkPeer*) peer;
-
-/**
- Connect to a peer with a success block callback.
- @param peer Connect to this peer
- @param successBlock Block to be called after successfull connected
- */
-- (void) connectToPeer:(BOMTalkPeer*) peer success:(BOMTalkBlock) successBlock;
-
-/**
- Connect to a peer with a success and failure block callback.
- @param peer Connect to this peer
- @param successBlock Block to be called after successfull connected
- @param failureBlock Block to be called when a connection failed
- */
-- (void) connectToPeer:(BOMTalkPeer*) peer success:(BOMTalkBlock) successBlock failure:(BOMTalkErrorBlock) failureBlock;
-
-/**
- Disconnect from a peer.
- @param peer Peer to be disconnected.
- */
-- (void) disconnectPeer:(BOMTalkPeer*) peer;
 
 /** @name Sending messages */
 

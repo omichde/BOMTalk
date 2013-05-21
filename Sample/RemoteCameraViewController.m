@@ -24,16 +24,16 @@
 
 - (void) viewDidLoad {
 	[super viewDidLoad];
-	self.navigationItem.titleView = _progressView = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, 200, 44)];
-	_progressView.hidden = YES;
+	self.navigationItem.titleView = self.progressView = [[UIProgressView alloc] initWithFrame:CGRectMake(0, 0, 200, 44)];
+	self.progressView.hidden = YES;
 #ifdef BOMTalkDebug
 	self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSearch target:self action:@selector(debuggerShow)];
 #endif
 }
 
 - (void) viewDidUnload {
-	_imageView = nil;
-	_listView = nil;
+	self.imageView = nil;
+	self.listView = nil;
 	[super viewDidUnload];
 }
 
@@ -41,24 +41,24 @@
 	[super viewDidAppear:animated];
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	[talker answerToUpdate:^(BOMTalkPeer *sender) {
-		[_listView reloadData];
+		[self.listView reloadData];
 	}];
 	[talker answerToMessage:kRequestPhoto block:^(BOMTalkPeer *peer, id data) {
-		_peer = peer;
+		self.peer = peer;
 		[self takePhoto];
 	}];
 	[talker answerToMessage:kSendPhoto block:^(BOMTalkPeer *peer, id data) {
 		UIImage *image = [[UIImage alloc] initWithData: data];
 		UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
-		_imageView.image = image;
+		self.imageView.image = image;
 	}];
 	[talker progressForReceiving:^(float progress) {
-		_progressView.hidden = (progress == 1.0);
-		_progressView.progress = 1 - progress;
+		self.progressView.hidden = (progress == 1.0);
+		self.progressView.progress = 1 - progress;
 	}];
 	[talker progressForSending:^(float progress) {
-		_progressView.hidden = (progress == 1.0);
-		_progressView.progress = progress;
+		self.progressView.hidden = (progress == 1.0);
+		self.progressView.progress = progress;
 	}];
 	[[BOMTalk sharedTalk] start];
 }
@@ -86,8 +86,8 @@
 - (void) takePhoto {
 	NSError *error = nil;
 	AVCaptureDeviceInput *input;
-	_captureSession = [[AVCaptureSession alloc] init];
-	_captureSession.sessionPreset = AVCaptureSessionPresetHigh;
+	self.captureSession = [[AVCaptureSession alloc] init];
+	self.captureSession.sessionPreset = AVCaptureSessionPresetHigh;
 	NSArray *deviceList = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
 	for (AVCaptureDevice *device in deviceList) {
 		if (device.position == AVCaptureDevicePositionBack) {
@@ -97,31 +97,31 @@
 		}
 	}
 	if (input) {
-		[_captureSession addInput:input];
-		_captureOutput = [[AVCaptureStillImageOutput alloc] init];
-		_captureOutput.outputSettings = [NSDictionary dictionaryWithObjectsAndKeys:AVVideoCodecJPEG,AVVideoCodecKey,nil];
-		[_captureSession addOutput:_captureOutput];
-		[_captureSession addObserver: self forKeyPath:@"running" options:NSKeyValueObservingOptionNew context:NULL];
-		[_captureSession startRunning];
+		[self.captureSession addInput:input];
+		self.captureOutput = [[AVCaptureStillImageOutput alloc] init];
+		self.captureOutput.outputSettings = [NSDictionary dictionaryWithObjectsAndKeys:AVVideoCodecJPEG,AVVideoCodecKey,nil];
+		[self.captureSession addOutput:self.captureOutput];
+		[self.captureSession addObserver: self forKeyPath:@"running" options:NSKeyValueObservingOptionNew context:NULL];
+		[self.captureSession startRunning];
 	}
 }
 
 - (void) observeValueForKeyPath:(NSString*) keyPath ofObject:(id)object change:(NSDictionary*) change context:(void*) context {
 	if ([keyPath isEqual:@"running"] && [change valueForKey: NSKeyValueChangeNewKey]) {
-		dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC));	// wait for dark/cold sensor, pure heuristic
+		dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC));	// wait for dark/cold sensor, pure heuristic
 		dispatch_after(popTime, dispatch_get_main_queue(), ^(void){
-			for (AVCaptureConnection *connection in _captureOutput.connections) {
+			for (AVCaptureConnection *connection in self.captureOutput.connections) {
 				for (AVCaptureInputPort *port in connection.inputPorts) {
 					if ([[port mediaType] isEqual:AVMediaTypeVideo]) {
-						[_captureOutput captureStillImageAsynchronouslyFromConnection:connection
+						[self.captureOutput captureStillImageAsynchronouslyFromConnection:connection
 																												completionHandler:^(CMSampleBufferRef imageSampleBuffer, NSError *error) {
 																													if (imageSampleBuffer) {
 																														NSData *imageData = [AVCaptureStillImageOutput jpegStillImageNSDataRepresentation:imageSampleBuffer];
-																														[[BOMTalk sharedTalk] sendMessage:kSendPhoto toPeer:_peer withData:imageData];
+																														[[BOMTalk sharedTalk] sendMessage:kSendPhoto toPeer:self.peer withData:imageData];
 																													}
-																													[_captureSession removeObserver:self forKeyPath:@"running"];
-																													[_captureSession stopRunning];
-																													_captureSession = nil;
+																													[self.captureSession removeObserver:self forKeyPath:@"running"];
+																													[self.captureSession stopRunning];
+																													self.captureSession = nil;
 																												}];
 					}
 				}
@@ -130,7 +130,6 @@
 	}
 	else
 		[super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
-
 }
 
 #pragma mark delegate callbacks
@@ -152,9 +151,7 @@
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	BOMTalkPeer *peer = talker.peerList[indexPath.row];
-	[talker connectToPeer: peer success:^(BOMTalkPeer *peer){
-		[talker sendMessage:kRequestPhoto toPeer:peer];
-	}];
+	[talker sendMessage:kRequestPhoto toPeer:peer];
 }
 
 @end

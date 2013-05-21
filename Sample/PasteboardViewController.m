@@ -152,12 +152,10 @@
 	[self.textView endEditing:YES];
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	BOMTalkPeer *peer = talker.peerList[indexPath.row];
-	[talker connectToPeer: peer success:^(BOMTalkPeer *peer){
-		if (self.imageView.hidden)
-			[talker sendMessage:kSendText toPeer:peer withData: self.textView.text];
-		else
-			[talker sendMessage:kSendImage toPeer:peer withData: UIImageJPEGRepresentation(self.imageView.image, 0.9)];
-	}];
+	if (self.imageView.hidden)
+		[talker sendMessage:kSendText toPeer:peer withData: self.textView.text];
+	else
+		[talker sendMessage:kSendImage toPeer:peer withData: UIImageJPEGRepresentation(self.imageView.image, 0.9)];
 }
 
 @end

@@ -45,7 +45,6 @@
 	[self reset];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateTalk:) name:BOMTalkUpdateNotification object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(errorTalk:) name:BOMTalkFailedNotification object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(connectedTalk:) name:BOMTalkDidConnectNotification object:nil];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receivedTalk:) name:BOMTalkReceivedNotification object:nil];
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	[talker start];
@@ -235,10 +234,7 @@
 	BOMTalk *talker = [BOMTalk sharedTalk];
 	BOMTalkPeer *peer = talker.peerList[indexPath.row];
 	_asServer = YES;
-	if (peer.state == BOMTalkPeerStateConnected)
-		[self startGameWithPeer:peer];
-	else
-		[talker connectToPeer: peer];
+	[self startGameWithPeer:peer];
 }
 
 @end
