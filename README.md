@@ -184,6 +184,10 @@ Copy the topmost `BOMTalk` folder to your project, add the `GameKit.framework` t
 
 # Version
 
+**1.0**
+
+- production ready ([Exhibition's](http://exhibition.werk01.de) file sharing and remote control feature will use BOMTalk)
+
 **0.93**
 
 - minimized API, fixed samples
