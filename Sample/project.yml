@@ -1,0 +1,45 @@
+# Source of truth for BOMTalkSample.xcodeproj – regenerate with `xcodegen` in this folder.
+name: BOMTalkSample
+options:
+  bundleIdPrefix: de.werk01
+  createIntermediateGroups: true
+  indentWidth: 1
+  tabWidth: 4
+  usesTabs: true
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+packages:
+  BOMTalk:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  BOMTalkSample:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - BOMTalkSample
+    dependencies:
+      - package: BOMTalk
+    info:
+      path: BOMTalkSample/Info.plist
+      properties:
+        CFBundleDisplayName: BOMTalk
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocalNetworkUsageDescription: BOMTalk Sample connects to nearby devices running the same app.
+        NSBonjourServices: [_bomtalk-demo._tcp, _bomtalk-demo._udp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.werk01.BOMTalkSample
+        MARKETING_VERSION: "2.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": BOMTalkSample/BOMTalkSample.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
