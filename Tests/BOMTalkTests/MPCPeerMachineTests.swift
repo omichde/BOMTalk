@@ -24,13 +24,23 @@ import Testing
 	static let d = uuid("8")
 	static let names = [a: "A", b: "B", c: "C", d: "D"]
 
+	final class Clock {
+		var now = ContinuousClock.now
+	}
+
 	/// Runs the machine and renders its actions as strings; remembers the latest timer per peer.
 	final class Script {
 		var machine: MPCPeerMachine<String>
 		var timers: [UUID: Int] = [:]
+		private let clock = Clock()
 
 		init(maxPeers: Int = MPCPolicy.maxRemotePeers) {
-			machine = MPCPeerMachine(localID: MPCPeerMachineTests.local, maxPeers: maxPeers)
+			machine = MPCPeerMachine(localID: MPCPeerMachineTests.local, maxPeers: maxPeers, now: { [clock] in clock.now })
+		}
+
+		/// Advances the injected clock; timers still fire only via `fire`.
+		func wait(_ seconds: Int) {
+			clock.now += .seconds(seconds)
 		}
 
 		func found(_ handle: String, _ id: UUID, name: String? = nil) -> [String] {
@@ -79,7 +89,7 @@ import Testing
 
 	@Test func lowerUUIDInvitesAtOnce() {
 		let s = Script()
-		#expect(s.found("a1", Self.a) == ["found A A", "timer A 40s", "connecting A", "invite a1"])
+		#expect(s.found("a1", Self.a) == ["found A A", "timer A 20s", "connecting A", "invite a1"])
 		#expect(s.found("a1", Self.a) == [])	// unchanged, no second invitation
 		#expect(s.state("a1", .connected) == ["connected A"])
 		#expect(s.machine.sendHandle(for: Self.a) == "a1")
@@ -89,7 +99,7 @@ import Testing
 		let s = Script()
 		#expect(s.found("b1", Self.b) == ["found B B", "timer B 5s"])
 		#expect(s.found("b1", Self.b) == [])	// timer is not postponed
-		#expect(s.fire(Self.b) == ["timer B 40s", "connecting B", "invite b1"])
+		#expect(s.fire(Self.b) == ["timer B 20s", "connecting B", "invite b1"])
 	}
 
 	@Test func lostWhileConnected() {
@@ -100,16 +110,16 @@ import Testing
 		#expect(s.machine.sendHandle(for: Self.a) == "a1")
 		#expect(s.state("a1", .notConnected) == ["disconnected A", "lost A"])
 		#expect(s.machine.sendHandle(for: Self.a) == nil)
-		#expect(s.found("a1", Self.a) == ["found A A", "timer A 40s", "connecting A", "invite a1"])
+		#expect(s.found("a1", Self.a) == ["found A A", "timer A 20s", "connecting A", "invite a1"])
 	}
 
 	@Test func reconnectWithBackoff() {
 		let s = Script()
 		_ = s.found("a1", Self.a)
 		_ = s.state("a1", .connected)
-		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 1s"])
-		#expect(s.fire(Self.a) == ["timer A 40s", "connecting A", "invite a1"])
 		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 2s"])
+		#expect(s.fire(Self.a) == ["timer A 20s", "connecting A", "invite a1"])
+		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 4s"])
 	}
 
 	@Test func renameKeepsPeer() {
@@ -119,8 +129,8 @@ import Testing
 		#expect(s.found("a2", Self.a, name: "A2") == ["found A A2"])
 		#expect(s.lost("a1") == [])	// outdated advertised handle
 		#expect(s.machine.sendHandle(for: Self.a) == "a1")	// session stays on the old handle
-		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 1s"])	// still visible via a2
-		#expect(s.fire(Self.a) == ["timer A 40s", "connecting A", "invite a2"])
+		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 2s"])	// still visible via a2
+		#expect(s.fire(Self.a) == ["timer A 20s", "connecting A", "invite a2"])
 		#expect(s.state("a1", .notConnected) == [])	// old handle no longer matters
 		#expect(s.state("a2", .connected) == ["connected A"])
 		#expect(s.lost("a2") == [])
@@ -133,17 +143,34 @@ import Testing
 		#expect(s.invitation("a1", Self.a) == ["decline"])	// we are the designated inviter
 		_ = s.found("b1", Self.b)
 		_ = s.fire(Self.b)	// fallback: we invite B
-		#expect(s.invitation("b1", Self.b) == ["accept", "timer B 40s"])
+		#expect(s.invitation("b1", Self.b) == ["accept", "timer B 20s"])
 		#expect(s.state("b1", .connected) == ["connected B"])
+	}
+
+	@Test func staleOwnInvitationGivesWay() {
+		let s = Script()
+		_ = s.found("a1", Self.a)	// our invitation hangs, the remote restarted meanwhile
+		s.wait(4)
+		#expect(s.invitation("a1", Self.a) == ["accept", "timer A 20s"])
+		#expect(s.state("a1", .connected) == ["connected A"])
+	}
+
+	@Test func lostCancelsPendingInvitation() {
+		let s = Script()
+		_ = s.found("a1", Self.a)
+		#expect(s.lost("a1") == ["cancel a1", "disconnected A", "lost A"])
+		#expect(s.found("a1", Self.a) == ["found A A", "timer A 20s", "connecting A", "invite a1"])
+		#expect(s.found("a2", Self.a) == ["cancel a1", "disconnected A", "timer A 2s"])	// new handle
+		#expect(s.fire(Self.a) == ["timer A 20s", "connecting A", "invite a2"])
 	}
 
 	@Test func invitationFromConnectedPeer() {
 		let s = Script()
 		_ = s.found("a1", Self.a)
 		_ = s.state("a1", .connected)
-		#expect(s.invitation("a1", Self.a) == ["accept", "disconnected A", "connecting A", "timer A 40s"])
+		#expect(s.invitation("a1", Self.a) == ["accept", "disconnected A", "connecting A", "timer A 20s"])
 		#expect(s.state("a1", .connected) == ["connected A"])
-		#expect(s.invitation("a2", Self.a) == ["accept", "cancel a1", "disconnected A", "connecting A", "timer A 40s"])
+		#expect(s.invitation("a2", Self.a) == ["accept", "cancel a1", "disconnected A", "connecting A", "timer A 20s"])
 		#expect(s.machine.sendHandle(for: Self.a) == nil)
 		#expect(s.state("a1", .notConnected) == [])
 	}
@@ -151,9 +178,9 @@ import Testing
 	@Test func watchdogCancelsStuckConnect() {
 		let s = Script()
 		_ = s.found("a1", Self.a)
-		#expect(s.fire(Self.a) == ["cancel a1", "disconnected A", "timer A 1s"])
+		#expect(s.fire(Self.a) == ["cancel a1", "disconnected A", "timer A 2s"])
 		#expect(s.state("a1", .connected) == ["cancel a1"])	// late link of the cancelled attempt
-		#expect(s.fire(Self.a) == ["timer A 40s", "connecting A", "invite a1"])
+		#expect(s.fire(Self.a) == ["timer A 20s", "connecting A", "invite a1"])
 	}
 
 	@Test func capacity() {
@@ -163,9 +190,9 @@ import Testing
 		#expect(s.invitation("c1", Self.c) == ["decline"])
 		#expect(s.invitation("a1", Self.a) == ["decline"])	// own invitation pending
 		_ = s.state("a1", .connected)
-		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 1s", "timer D 40s", "connecting D", "invite d1"])
+		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 2s", "timer D 20s", "connecting D", "invite d1"])
 		#expect(s.fire(Self.a) == [])	// full again
-		#expect(s.state("d1", .notConnected) == ["disconnected D", "timer D 1s", "timer A 1s"])	// slot free, A still backs off
-		#expect(s.fire(Self.a) == ["timer A 40s", "connecting A", "invite a1"])
+		#expect(s.state("d1", .notConnected) == ["disconnected D", "timer D 2s", "timer A 2s"])	// slot free, A still backs off
+		#expect(s.fire(Self.a) == ["timer A 20s", "connecting A", "invite a1"])
 	}
 }

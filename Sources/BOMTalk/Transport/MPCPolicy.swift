@@ -86,12 +86,17 @@ enum MPCPolicy {
 
 	/// 8 peers per `MCSession` in total, including this device.
 	static let maxRemotePeers = 7
-	static let inviteTimeout: TimeInterval = 30
+	/// Handshakes on a LAN take < 2 s; an unanswered invitation must not block the peer for long.
+	static let inviteTimeout: TimeInterval = 10
 	/// A peer stuck in connecting this long is cancelled and counts as failed attempt.
 	static let watchdogDelay: Duration = .seconds(inviteTimeout + 10)
 	/// The side not inviting waits this long before inviting anyway.
 	static let fallbackDelay: Duration = .seconds(5)
-	static let backoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+	/// Our own invitation younger than this makes an incoming one simultaneous (declined by the
+	/// designated inviter); an older one is stale and gives way to the incoming invitation.
+	static let simultaneousInviteWindow: Duration = .seconds(3)
+	/// Starts at 2 s: right after a disconnect the remote may still be stopping (backgrounded).
+	static let backoff: [Duration] = [.seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
 	/// At most one advertiser restart (info update) per interval.
 	static let advertiserRestartDelay: Duration = .milliseconds(500)
 

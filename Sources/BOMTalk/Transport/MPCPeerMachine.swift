@@ -13,6 +13,8 @@ import MultipeerConnectivity
 /// One device may appear with several handles (rename, relaunch): `advertised` is the latest one seen
 /// by the browser and used for inviting, `session` the one the session link belongs to. Callbacks for
 /// other handles are ignored, so an outdated handle can neither hide nor drop a peer.
+///
+/// Time only matters for telling a simultaneous invitation from a stale one; `now` is injected.
 struct MPCPeerMachine<Handle: Hashable> {
 
 	enum Action {
@@ -35,8 +37,8 @@ struct MPCPeerMachine<Handle: Hashable> {
 		var advertised: Handle?
 		var session: Handle?
 		var state = State.idle
-		/// Our own invitation is pending.
-		var invited = false
+		/// Our own invitation is pending since then.
+		var invitedAt: ContinuousClock.Instant?
 		/// Consecutive failed or dropped connections, reset on connect.
 		var failures = 0
 		/// Pending timer: invite delay while idle, watchdog while connecting.
@@ -48,13 +50,15 @@ struct MPCPeerMachine<Handle: Hashable> {
 
 	let localID: UUID
 	let maxPeers: Int
+	private let now: () -> ContinuousClock.Instant
 	private var peers: [UUID: Record] = [:]
 	private var actions: [Action] = []
 	private var lastToken = 0
 
-	init(localID: UUID, maxPeers: Int = MPCPolicy.maxRemotePeers) {
+	init(localID: UUID, maxPeers: Int = MPCPolicy.maxRemotePeers, now: @escaping () -> ContinuousClock.Instant = { .now }) {
 		self.localID = localID
 		self.maxPeers = maxPeers
+		self.now = now
 	}
 
 	/// Forgets all peers; pending timers become outdated.
@@ -80,6 +84,9 @@ struct MPCPeerMachine<Handle: Hashable> {
 		if changed {
 			emit(.found(record.peer))
 		}
+		if let session = record.session, session != handle {
+			cancelInvite(id)	// our invitation went to an outdated handle
+		}
 		scheduleConnect(id)
 		return take()
 	}
@@ -90,16 +97,19 @@ struct MPCPeerMachine<Handle: Hashable> {
 		if peers[id]?.state == .idle {
 			peers[id] = nil
 			emit(.lost(id))
-		}	// otherwise `lost` follows the disconnect
+		} else {
+			cancelInvite(id)	// nobody left to answer it; otherwise `lost` follows the disconnect
+		}
 		return take()
 	}
 
 	mutating func invitation(from handle: Handle, id: UUID, name: String) -> (accept: Bool, actions: [Action]) {
 		guard id != localID else { return (false, []) }
 		var record = peers[id] ?? Record(id: id, name: name)
-		if record.state == .connecting, record.invited, MPCPolicy.invitesFirst(local: localID, remote: id) {
+		if record.state == .connecting, let invitedAt = record.invitedAt, now() - invitedAt < MPCPolicy.simultaneousInviteWindow,
+			MPCPolicy.invitesFirst(local: localID, remote: id) {
 			return (false, [])	// simultaneous invitations: the remote accepts ours
-		}
+		}	// an older own invitation is stale: the remote is alive, so take theirs
 		guard hasCapacity(excluding: id) else { return (false, []) }
 		if let old = record.session, old != handle {
 			actions.append(.cancel(old))
@@ -116,7 +126,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 		}
 		record.state = .connecting
 		record.session = handle
-		record.invited = false
+		record.invitedAt = nil
 		record.timer = startTimer(id, after: MPCPolicy.watchdogDelay)
 		peers[id] = record
 		return (true, take())
@@ -171,7 +181,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 	private mutating func connect(_ id: UUID) {
 		guard var record = peers[id], record.state != .connected else { return }
 		record.state = .connected
-		record.invited = false
+		record.invitedAt = nil
 		record.failures = 0
 		record.timer = nil
 		peers[id] = record
@@ -183,7 +193,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 		guard var record = peers[id], record.state != .idle else { return }
 		record.state = .idle
 		record.session = nil
-		record.invited = false
+		record.invitedAt = nil
 		record.timer = nil
 		record.failures += 1
 		emit(.disconnected(id))
@@ -195,6 +205,13 @@ struct MPCPeerMachine<Handle: Hashable> {
 			emit(.lost(id))
 		}
 		fillSlots()
+	}
+
+	/// Cancels our pending invitation, counting as failed attempt.
+	private mutating func cancelInvite(_ id: UUID) {
+		guard let record = peers[id], record.state == .connecting, record.invitedAt != nil, let session = record.session else { return }
+		actions.append(.cancel(session))
+		fail(id)
 	}
 
 	/// Invites a visible idle peer now or after tie-break / backoff delay.
@@ -213,7 +230,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 		}
 		record.state = .connecting
 		record.session = handle
-		record.invited = true
+		record.invitedAt = now()
 		record.timer = startTimer(id, after: MPCPolicy.watchdogDelay)
 		peers[id] = record
 		emit(.connecting(id))
