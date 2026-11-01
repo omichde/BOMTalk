@@ -6,7 +6,7 @@
 import Foundation
 import MultipeerConnectivity
 
-/// Per-peer bookkeeping of `MPCTransport` without any MPC objects: fed with browser, invitation and
+/// Per-peer bookkeeping of `LinkTransport` without any MPC objects: fed with browser, invitation and
 /// session callbacks, it returns the actions to perform. `Handle` is `MCPeerID` in production.
 ///
 /// Per peer the state is `idle → connecting → connected → idle`, plus visibility from the browser.

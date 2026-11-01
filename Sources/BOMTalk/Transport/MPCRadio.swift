@@ -1,0 +1,226 @@
+//
+//  MPCRadio.swift
+//  BOMTalk
+//
+
+import Foundation
+import MultipeerConnectivity
+import os
+
+/// The production transport: `LinkTransport` over MultipeerConnectivity.
+typealias MPCTransport = LinkTransport<MPCRadio>
+
+extension LinkTransport where Radio == MPCRadio {
+
+	convenience init(serviceType: String, appID: String, displayName: String, protocolVersion: Int) {
+		let identity = MPCIdentity.load(appID: appID, displayName: displayName, defaults: .standard, store: KeychainUUIDStore(service: "BOMTalk.\(appID)"))
+		self.init(
+			radio: MPCRadio(peerID: identity.peerID, serviceType: serviceType),
+			localID: identity.uuid,
+			displayName: identity.displayName,
+			appID: appID,
+			protocolVersion: protocolVersion,
+			timers: TaskTimers()
+		)
+	}
+}
+
+/// One `MCSession` plus advertiser and browser, recreated on every start. A thin adapter: callbacks
+/// are hopped to the main actor in arrival order and passed on as `LinkRadioEvent`s.
+@MainActor
+final class MPCRadio: LinkRadio {
+
+	var onEvent: (@MainActor (LinkRadioEvent<MCPeerID>) -> Void)?
+	let localHandle: MCPeerID
+
+	/// Everything that only exists while running; recreated on every start.
+	private struct Services {
+		let session: MCSession
+		var advertiser: MCNearbyServiceAdvertiser
+		let browser: MCNearbyServiceBrowser
+		let proxy: MPCDelegateProxy
+	}
+
+	private let serviceType: String
+	private let logger = Logger.bomtalk("transport")
+	private var services: Services?
+
+	init(peerID: MCPeerID, serviceType: String) {
+		localHandle = peerID
+		self.serviceType = serviceType
+	}
+
+	// MARK: - LinkRadio
+
+	func displayName(of handle: MCPeerID) -> String {
+		handle.displayName
+	}
+
+	func start(discoveryInfo: [String: String]) {
+		guard services == nil else { return }
+		let session = MCSession(peer: localHandle, securityIdentity: nil, encryptionPreference: .required)
+		let browser = MCNearbyServiceBrowser(peer: localHandle, serviceType: serviceType)
+		let proxy = MPCDelegateProxy(radio: self)
+		session.delegate = proxy
+		browser.delegate = proxy
+		let advertiser = makeAdvertiser(proxy: proxy, discoveryInfo: discoveryInfo)
+		services = Services(session: session, advertiser: advertiser, browser: browser, proxy: proxy)
+		advertiser.startAdvertisingPeer()
+		browser.startBrowsingForPeers()
+	}
+
+	func stop() {
+		guard let services else { return }
+		self.services = nil
+		services.advertiser.stopAdvertisingPeer()
+		services.browser.stopBrowsingForPeers()
+		services.advertiser.delegate = nil
+		services.browser.delegate = nil
+		services.session.delegate = nil
+		services.session.disconnect()
+	}
+
+	func restartAdvertiser(discoveryInfo: [String: String]) {
+		guard var services else { return }
+		services.advertiser.stopAdvertisingPeer()
+		services.advertiser.delegate = nil
+		services.advertiser = makeAdvertiser(proxy: services.proxy, discoveryInfo: discoveryInfo)
+		self.services = services
+		services.advertiser.startAdvertisingPeer()
+	}
+
+	func invite(_ handle: MCPeerID, context: Data?, timeout: TimeInterval) {
+		guard let services else { return }
+		services.browser.invitePeer(handle, to: services.session, withContext: context, timeout: timeout)
+	}
+
+	func cancel(_ handle: MCPeerID) {
+		services?.session.cancelConnectPeer(handle)
+	}
+
+	func send(_ data: Data, to handle: MCPeerID) throws {
+		guard let services else { throw TalkError.notConnected }
+		try services.session.send(data, toPeers: [handle], with: .reliable)
+	}
+
+	// MARK: - Delegate callbacks (on main, in arrival order)
+
+	fileprivate enum Callback {
+		case found(MCPeerID, [String: String]?)
+		case lost(MCPeerID)
+		case invitation(MCPeerID, Data?, (Bool, MCSession?) -> Void)
+		case state(MCPeerID, MCSessionState)
+		case data(Data, MCPeerID)
+		case advertiserFailed(any Error)
+		case browserFailed(any Error)
+	}
+
+	/// Callbacks of a previous run (other proxy) are ignored. Invitations that reached a previous
+	/// advertiser of this run (info update) are still handled: the session is the same.
+	fileprivate func handle(_ callback: Callback, from proxy: MPCDelegateProxy) {
+		guard let services, services.proxy === proxy, let onEvent else {
+			if case let .invitation(_, _, handler) = callback {
+				handler(false, nil)
+			}
+			return
+		}
+		switch callback {
+		case let .found(peerID, info):
+			onEvent(.found(peerID, discoveryInfo: info))
+		case let .lost(peerID):
+			onEvent(.lost(peerID))
+		case let .invitation(peerID, context, handler):
+			let session = services.session
+			onEvent(.invitation(peerID, context: context, reply: { accept in
+				handler(accept, accept ? session : nil)
+			}))
+		case let .state(peerID, state):
+			onEvent(.state(peerID, state))
+		case let .data(data, peerID):
+			onEvent(.data(data, from: peerID))
+		case let .advertiserFailed(error):
+			logger.error("advertiser failed: \(error, privacy: .public)")
+			onEvent(.failed(MPCPolicy.startError(error, serviceType: serviceType) ?? .advertiserFailed(error.localizedDescription)))
+		case let .browserFailed(error):
+			logger.error("browser failed: \(error, privacy: .public)")
+			onEvent(.failed(MPCPolicy.startError(error, serviceType: serviceType) ?? .browserFailed(error.localizedDescription)))
+		}
+	}
+
+	private func makeAdvertiser(proxy: MPCDelegateProxy, discoveryInfo: [String: String]) -> MCNearbyServiceAdvertiser {
+		let advertiser = MCNearbyServiceAdvertiser(peer: localHandle, discoveryInfo: discoveryInfo, serviceType: serviceType)
+		advertiser.delegate = proxy
+		return advertiser
+	}
+}
+
+/// Receives MPC callbacks on MPC's queues and forwards them to the main actor.
+/// `DispatchQueue.main.async` keeps the arrival order (FIFO), unlike unstructured tasks.
+private final class MPCDelegateProxy: NSObject, Sendable, MCSessionDelegate, MCNearbyServiceAdvertiserDelegate, MCNearbyServiceBrowserDelegate {
+
+	/// MPC types are not annotated `Sendable`; they are only touched on main after the hop.
+	private struct Box: @unchecked Sendable {
+		let callback: MPCRadio.Callback
+	}
+
+	private weak let radio: MPCRadio?
+
+	init(radio: MPCRadio) {
+		self.radio = radio
+	}
+
+	private func forward(_ callback: MPCRadio.Callback) {
+		let box = Box(callback: callback)
+		DispatchQueue.main.async {
+			MainActor.assumeIsolated {
+				if let radio = self.radio {
+					radio.handle(box.callback, from: self)
+				} else if case let .invitation(_, _, handler) = box.callback {
+					handler(false, nil)
+				}
+			}
+		}
+	}
+
+	// MARK: MCNearbyServiceBrowserDelegate
+
+	func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
+		forward(.found(peerID, info))
+	}
+
+	func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
+		forward(.lost(peerID))
+	}
+
+	func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: any Error) {
+		forward(.browserFailed(error))
+	}
+
+	// MARK: MCNearbyServiceAdvertiserDelegate
+
+	func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+		forward(.invitation(peerID, context, invitationHandler))
+	}
+
+	func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: any Error) {
+		forward(.advertiserFailed(error))
+	}
+
+	// MARK: MCSessionDelegate
+
+	func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
+		forward(.state(peerID, state))
+	}
+
+	func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+		forward(.data(data, peerID))
+	}
+
+	func session(_ session: MCSession, didReceiveCertificate certificate: [Any]?, fromPeer peerID: MCPeerID, certificateHandler: @escaping (Bool) -> Void) {
+		certificateHandler(true)	// no PIN / identity check, encryption only
+	}
+
+	func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
+	func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
+	func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: (any Error)?) {}
+}
