@@ -1,0 +1,463 @@
+//
+//  SimNetwork.swift
+//  BOMTalkTests
+//
+
+import Foundation
+import MultipeerConnectivity
+@testable import BOMTalk
+
+/// Timing and limits of the simulated radio.
+struct SimConfig {
+	/// One way delay of invitations, answers and data.
+	var latency: Duration = .milliseconds(5)
+	/// From an accepted invitation to `connected` on both sides.
+	var handshake: Duration = .milliseconds(200)
+	/// Until a browser reports a newly visible peer, drawn from the seeded generator.
+	var discoveryDelay: ClosedRange<Duration> = .milliseconds(50) ... .milliseconds(300)
+	/// Peers per session including this device, like `kMCSessionMaximumNumberOfPeers`.
+	var sessionCapacity = 8
+	/// Peer cap of each device's `MPCPeerMachine`; above `sessionCapacity - 1` the sim refuses instead.
+	var maxPeers = MPCPolicy.maxRemotePeers
+	/// Time step of `run(for:)` / `run(until:)`.
+	var step: Duration = .milliseconds(10)
+	/// Main actor yields per step while any device has a `Talk`, so its tasks can run.
+	var yields = 10
+	/// Talk timeouts are real time, not virtual.
+	var offerTimeout: Duration = .seconds(30)
+	var chunkTimeout: Duration = .seconds(30)
+}
+
+/// Deterministic generator (SplitMix64).
+struct SeededGenerator: RandomNumberGenerator {
+
+	private var state: UInt64
+
+	init(seed: UInt64) {
+		state = seed
+	}
+
+	mutating func next() -> UInt64 {
+		state &+= 0x9E37_79B9_7F4A_7C15
+		var z = state
+		z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+		z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+		return z ^ (z >> 31)
+	}
+}
+
+/// In-memory radio network of N devices on virtual time (`ManualTimers`), with MPC-like semantics:
+///
+/// - **Visibility** (radio range) is a symmetric graph. A running device's browser finds every running
+///   visible device after a discovery delay and loses it when it stops, vanishes or gets hidden.
+///   Hiding a pair also drops its session link (out of range).
+/// - **Invitations** reach the invitee after `latency` if it is visible, otherwise they time out.
+///   Decline or timeout reports `notConnected` to the inviter.
+/// - **Sessions**: an accepted invitation creates a link, both sides report `connecting`, then
+///   `connected` after `handshake`. The cap of `sessionCapacity` peers (including self) is checked on
+///   both sides when accepting; beyond it the connection fails with `notConnected` on both sides.
+/// - **Data** arrives after `latency`, in order per link; sending on a link that is not connected throws.
+///
+/// Every callback goes through the timers, so it arrives on a later turn, like MPC's main-queue hop.
+/// Nothing iterates hashed collections in an order-dependent way: same seed, same event order.
+///
+/// ```swift
+/// let net = SimNetwork(count: 5, seed: 1)
+/// net.fullMesh()
+/// net.startAll()
+/// await net.run(for: .seconds(10))
+/// ```
+@MainActor
+final class SimNetwork {
+
+	/// Builds the transport a device's `Talk` (or the test) talks to, on top of the link transport.
+	/// The hook for decorators like a relay; the default is the link transport itself.
+	typealias Wrap = @MainActor (_ link: LinkTransport<SimRadio>, _ timers: ManualTimers) -> any Transport
+
+	private struct Pair: Hashable {
+		let low: Int
+		let high: Int
+
+		init(_ a: Int, _ b: Int) {
+			low = min(a, b)
+			high = max(a, b)
+		}
+
+		func other(_ x: Int) -> Int { x == low ? high : low }
+	}
+
+	/// From a browser (or inviter) to the peer it sees (or invites).
+	private struct Edge: Hashable {
+		let from: Int
+		let to: Int
+	}
+
+	private final class Link {
+		var isConnected = false
+		var isBlackholed = false
+	}
+
+	private struct Invite {
+		let id: Int
+		let timeout: TimerToken
+	}
+
+	let timers = ManualTimers()
+	let config: SimConfig
+	private(set) var devices: [SimDevice] = []
+	/// Transport events of all devices, `"<ms> d<i> <event> d<j>"`.
+	private(set) var log: [String] = []
+	/// Accepted invitations that failed because a session was full.
+	private(set) var capRefusals = 0
+
+	private var rng: SeededGenerator
+	private var visible: Set<Pair> = []
+	private var vanished: Set<Int> = []
+	private var discovered: Set<Edge> = []
+	private var pendingFound: [Edge: TimerToken] = [:]
+	private var links: [Pair: Link] = [:]
+	private var invites: [Edge: Invite] = [:]
+	private var lastInvite = 0
+
+	/// - Parameters:
+	///   - talk: Wraps every device in a `Talk` (not started).
+	///   - wrap: Builds the transport above each link transport, see `Wrap`.
+	init(count: Int, seed: UInt64 = 1, config: SimConfig = SimConfig(), talk: Bool = false, wrap: Wrap? = nil) {
+		self.config = config
+		rng = SeededGenerator(seed: seed)
+		for index in 0 ..< count {
+			let radio = SimRadio(index: index, network: self)
+			let id = randomUUID()
+			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: 1, timers: timers, maxPeers: config.maxPeers)
+			let transport = wrap?(link, timers) ?? link
+			let talk = talk ? Talk(transport: transport, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout) : nil
+			devices.append(SimDevice(index: index, radio: radio, link: link, transport: transport, talk: talk, network: self))
+		}
+	}
+
+	subscript(index: Int) -> SimDevice { devices[index] }
+
+	var now: Duration { timers.now }
+
+	func index(of id: UUID) -> Int? {
+		devices.firstIndex { $0.id == id }
+	}
+
+	// MARK: - Visibility
+
+	func see(_ a: Int, _ b: Int) {
+		guard a != b else { return }
+		visible.insert(Pair(a, b))
+		refreshDiscovery()
+	}
+
+	/// Out of range: also drops the session link.
+	func hide(_ a: Int, _ b: Int) {
+		visible.remove(Pair(a, b))
+		dropLink(Pair(a, b))
+		refreshDiscovery()
+	}
+
+	func fullMesh(_ indices: [Int]? = nil) {
+		let indices = indices ?? Array(devices.indices)
+		for (n, a) in indices.enumerated() {
+			for b in indices[(n + 1)...] {
+				see(a, b)
+			}
+		}
+	}
+
+	func line(_ indices: [Int]? = nil) {
+		let indices = indices ?? Array(devices.indices)
+		for (a, b) in zip(indices, indices.dropFirst()) {
+			see(a, b)
+		}
+	}
+
+	func ring(_ indices: [Int]? = nil) {
+		let indices = indices ?? Array(devices.indices)
+		line(indices)
+		if let first = indices.first, let last = indices.last, indices.count > 2 {
+			see(last, first)
+		}
+	}
+
+	/// Devices split in two halves, each a full mesh, joined by one pair (last of the first half,
+	/// first of the second).
+	func twoCliques() {
+		let half = devices.count / 2
+		let first = Array(0 ..< half), second = Array(half ..< devices.count)
+		fullMesh(first)
+		fullMesh(second)
+		if let a = first.last, let b = second.first {
+			see(a, b)
+		}
+	}
+
+	/// Each pair sees each other with `probability`, drawn from the seeded generator.
+	func random(probability: Double) {
+		for a in devices.indices {
+			for b in devices.indices where b > a {
+				if Double.random(in: 0 ..< 1, using: &rng) < probability {
+					see(a, b)
+				}
+			}
+		}
+	}
+
+	func isVisible(_ a: Int, _ b: Int) -> Bool {
+		visible.contains(Pair(a, b))
+	}
+
+	// MARK: - Lifecycle and faults
+
+	func startAll() {
+		devices.forEach { $0.start() }
+	}
+
+	/// Drops the session link: both sides report `notConnected`.
+	func drop(_ a: Int, _ b: Int) {
+		dropLink(Pair(a, b))
+	}
+
+	/// Data on the link is accepted but never delivered (a stalled link).
+	func blackhole(_ a: Int, _ b: Int, _ on: Bool = true) {
+		links[Pair(a, b)]?.isBlackholed = on
+	}
+
+	/// The device stops and is hidden from everyone until `reappear(_:)`.
+	func vanish(_ index: Int) {
+		vanished.insert(index)
+		devices[index].stop()
+		refreshDiscovery()
+	}
+
+	func reappear(_ index: Int) {
+		vanished.remove(index)
+		devices[index].start()
+		refreshDiscovery()
+	}
+
+	/// Remote peers in the session of a device, connecting or connected.
+	func sessionPeers(_ index: Int) -> [Int] {
+		links.keys.filter { $0.low == index || $0.high == index }.map { $0.other(index) }.sorted()
+	}
+
+	func isConnected(_ a: Int, _ b: Int) -> Bool {
+		links[Pair(a, b)]?.isConnected ?? false
+	}
+
+	// MARK: - Running
+
+	/// Fires everything due now and, with talks, yields to their tasks until nothing more is due.
+	func settle() async {
+		repeat {
+			timers.advance(by: .zero)
+			await yield()
+		} while timers.hasDue
+	}
+
+	/// Advances virtual time in steps of `config.step`, settling after each.
+	func run(for duration: Duration) async {
+		let end = timers.now + duration
+		await settle()
+		while timers.now < end {
+			timers.advance(by: min(config.step, end - timers.now))
+			await settle()
+		}
+	}
+
+	/// Runs until `condition` holds; false if `limit` (virtual) passes first.
+	func run(until condition: () -> Bool, limit: Duration = .seconds(120)) async -> Bool {
+		let end = timers.now + limit
+		await settle()
+		while !condition() {
+			guard timers.now < end else { return false }
+			timers.advance(by: config.step)
+			await settle()
+		}
+		return true
+	}
+
+	private func yield() async {
+		guard devices.contains(where: { $0.talk != nil }) else { return }
+		for _ in 0 ..< config.yields {
+			await Task.yield()
+		}
+	}
+
+	// MARK: - Radio (called by `SimRadio`)
+
+	func radioStarted(_ index: Int) {
+		refreshDiscovery()
+	}
+
+	/// Like `MCSession.disconnect()` plus stopping advertiser and browser: remote peers report
+	/// `notConnected` and lose the device; own pending invitations are withdrawn silently.
+	func radioStopped(_ index: Int) {
+		for edge in invites.keys.filter({ $0.from == index }).sorted(by: Self.edgeOrder) {
+			invites.removeValue(forKey: edge)?.timeout.cancel()
+		}
+		for pair in links.keys.filter({ $0.low == index || $0.high == index }).sorted(by: Self.pairOrder) {
+			dropLink(pair)
+		}
+		refreshDiscovery()
+	}
+
+	/// Browsers that see the device report it again with the new info.
+	func advertiserRestarted(_ index: Int) {
+		for browser in devices.indices where discovered.contains(Edge(from: browser, to: index)) {
+			let edge = Edge(from: browser, to: index)
+			post(browser, after: discoveryDelay()) { [unowned self] in
+				guard discovered.contains(edge) else { return nil }
+				return .found(devices[index].radio.localHandle, discoveryInfo: devices[index].radio.discoveryInfo)
+			}
+		}
+	}
+
+	func invite(from a: Int, to b: Int, context: Data?, timeout: TimeInterval) {
+		let edge = Edge(from: a, to: b)
+		invites.removeValue(forKey: edge)?.timeout.cancel()
+		lastInvite += 1
+		let id = lastInvite
+		let token = timers.schedule(after: .seconds(timeout)) { [unowned self] in
+			guard invites[edge]?.id == id else { return }
+			invites[edge] = nil
+			post(a) { .state(SimHandle(index: b), .notConnected) }
+		}
+		invites[edge] = Invite(id: id, timeout: token)
+		timers.schedule(after: config.latency) { [unowned self] in
+			guard invites[edge]?.id == id, canSee(a, b) else { return }	// out of range: times out
+			let target = devices[b].radio
+			let reply: @MainActor (Bool) -> Void = { [unowned self] accept in
+				answer(edge, id: id, accept: accept)
+			}
+			target.deliver(.invitation(SimHandle(index: a), context: context, reply: reply), run: target.run)
+		}
+	}
+
+	/// Like `cancelConnectPeer`: withdraws a pending invitation and drops the link, pending or connected.
+	func cancel(from a: Int, to b: Int) {
+		if let invite = invites.removeValue(forKey: Edge(from: a, to: b)) {
+			invite.timeout.cancel()
+			post(a) { .state(SimHandle(index: b), .notConnected) }
+		}
+		dropLink(Pair(a, b))
+	}
+
+	func send(_ data: Data, from a: Int, to b: Int) throws {
+		let pair = Pair(a, b)
+		guard let link = links[pair], link.isConnected else { throw SimError.notConnected }
+		guard !link.isBlackholed else { return }
+		post(b, after: config.latency) { [unowned self] in
+			guard links[pair] === link, !link.isBlackholed else { return nil }
+			return .data(data, from: SimHandle(index: a))
+		}
+	}
+
+	// MARK: - Sessions
+
+	private func answer(_ edge: Edge, id: Int, accept: Bool) {
+		guard let invite = invites[edge], invite.id == id else { return }	// late, cancelled or replaced
+		invite.timeout.cancel()
+		invites[edge] = nil
+		let (a, b) = (edge.from, edge.to)
+		guard accept else {
+			post(a, after: config.latency) { .state(SimHandle(index: b), .notConnected) }
+			return
+		}
+		let pair = Pair(a, b)
+		links[pair] = nil	// a fresh invitation replaces an old link silently
+		guard sessionPeers(a).count < config.sessionCapacity - 1, sessionPeers(b).count < config.sessionCapacity - 1 else {
+			capRefusals += 1
+			post(a, after: config.handshake) { .state(SimHandle(index: b), .notConnected) }
+			post(b, after: config.handshake) { .state(SimHandle(index: a), .notConnected) }
+			return
+		}
+		let link = Link()
+		links[pair] = link
+		post(a, after: config.latency) { .state(SimHandle(index: b), .connecting) }
+		post(b) { .state(SimHandle(index: a), .connecting) }
+		timers.schedule(after: config.handshake) { [unowned self] in
+			guard links[pair] === link else { return }
+			link.isConnected = true
+			post(a) { .state(SimHandle(index: b), .connected) }
+			post(b) { .state(SimHandle(index: a), .connected) }
+		}
+	}
+
+	private func dropLink(_ pair: Pair) {
+		guard links.removeValue(forKey: pair) != nil else { return }
+		post(pair.low) { .state(SimHandle(index: pair.high), .notConnected) }
+		post(pair.high) { .state(SimHandle(index: pair.low), .notConnected) }
+	}
+
+	// MARK: - Discovery
+
+	private func canSee(_ a: Int, _ b: Int) -> Bool {
+		a != b && devices[a].radio.isRunning && devices[b].radio.isRunning
+			&& !vanished.contains(a) && !vanished.contains(b) && visible.contains(Pair(a, b))
+	}
+
+	/// Brings every browser in line with visibility and running state, in index order.
+	private func refreshDiscovery() {
+		for a in devices.indices {
+			for b in devices.indices where b != a {
+				let edge = Edge(from: a, to: b)
+				if canSee(a, b) {
+					guard !discovered.contains(edge), pendingFound[edge] == nil else { continue }
+					pendingFound[edge] = timers.schedule(after: discoveryDelay()) { [unowned self] in
+						pendingFound[edge] = nil
+						guard canSee(a, b), discovered.insert(edge).inserted else { return }
+						let radio = devices[a].radio
+						radio.deliver(.found(SimHandle(index: b), discoveryInfo: devices[b].radio.discoveryInfo), run: radio.run)
+					}
+				} else {
+					pendingFound.removeValue(forKey: edge)?.cancel()
+					if discovered.remove(edge) != nil {
+						post(a) { .lost(SimHandle(index: b)) }
+					}
+				}
+			}
+		}
+	}
+
+	// MARK: - Helpers
+
+	/// Schedules a callback for the device's current run; `event` is evaluated when due, nil skips it.
+	private func post(_ index: Int, after delay: Duration = .zero, _ event: @escaping @MainActor () -> LinkRadioEvent<SimHandle>?) {
+		let radio = devices[index].radio
+		let run = radio.run
+		timers.schedule(after: delay) {
+			guard let event = event() else { return }
+			radio.deliver(event, run: run)
+		}
+	}
+
+	private func discoveryDelay() -> Duration {
+		let range = config.discoveryDelay
+		let span = (range.upperBound - range.lowerBound) / .milliseconds(1)
+		return range.lowerBound + .milliseconds(Int.random(in: 0 ... Int(span), using: &rng))
+	}
+
+	private func randomUUID() -> UUID {
+		let bytes = (0 ..< 2).flatMap { _ in withUnsafeBytes(of: rng.next()) { Array($0) } }
+		return bytes.withUnsafeBufferPointer { NSUUID(uuidBytes: $0.baseAddress) as UUID }
+	}
+
+	func record(_ line: String) {
+		log.append("\(Self.milliseconds(timers.now)) \(line)")
+	}
+
+	static func milliseconds(_ duration: Duration) -> Int64 {
+		duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
+	}
+
+	private static func edgeOrder(_ x: Edge, _ y: Edge) -> Bool {
+		(x.from, x.to) < (y.from, y.to)
+	}
+
+	private static func pairOrder(_ x: Pair, _ y: Pair) -> Bool {
+		(x.low, x.high) < (y.low, y.high)
+	}
+}

@@ -1,6 +1,6 @@
 # BOMTalk relay – beyond 8 devices
 
-Branch: `feature/relay`. Status: plan, nothing implemented yet (except `-autostart` in the Sample).
+Branch: `feature/relay`. Status: phase 1 (foundations) done; `-autostart` in the Sample.
 
 ## Problem
 
@@ -205,6 +205,9 @@ optional later add-on for interactive use.
 
 1. **Foundations** – injectable clock in `MPCPeerMachine` / `MPCTransport`; `LoopbackHub` with
    visibility graph, session cap and faults. *Done when* existing tests pass on the virtual clock.
+   **Done:** `Timers` (`TaskTimers` / test `ManualTimers`); `MPCTransport` split into the radio-agnostic
+   `LinkTransport` over a `LinkRadio` (`MPCRadio` in production); `Tests/…/Sim`: `SimNetwork` with
+   `SimRadio`s on virtual time (visibility graph, session cap, faults, seeded, `Wrap` hook for decorators).
 2. **Debug control layer + simulator rig** – `/state`, commands, event log, rig script; investigate the
    iPhone 16e connect failure. *Done when* a scripted 3-simulator run reports state without UI.
 3. **RelayTransport** – envelope, hello / link map, routing, dedupe. *Done when* simulator scenarios
