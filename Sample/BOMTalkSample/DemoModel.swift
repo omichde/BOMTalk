@@ -48,6 +48,10 @@ final class DemoModel {
 	init(displayName: String) {
 		talk = Self.makeTalk(displayName: displayName)
 		setUp()
+		// launch argument `-autostart YES` for scripted runs (e.g. `simctl launch`)
+		if UserDefaults.standard.bool(forKey: "autostart") {
+			setRunning(true)
+		}
 	}
 
 	func setRunning(_ running: Bool) {
