@@ -6,7 +6,7 @@
 import Foundation
 import Observation
 import Combine
-import BOMTalk
+@_spi(Debug) import BOMTalk
 
 /// Owns the `Talk` and turns its streams into simple observable UI state.
 @MainActor
@@ -39,19 +39,34 @@ final class DemoModel {
 		didSet { subscribeBlobs() }
 	}
 
+	let options: LaunchOptions
+	/// Debug control layer (launch argument `-controlPort` or `-soak`), nil in a normal run.
+	private(set) var control: ControlCenter?
+	/// Blob counters and recent results for the control layer.
+	private(set) var transferStats = TransferStats()
+	/// Display names the link layer ignores (debug block list), kept across renames.
+	private(set) var blocked: Set<String>
+
 	private var bag = Set<AnyCancellable>()
 	private var blobSubscription: AnyCancellable?
 
 	/// What the user wants, independent of `talk.isRunning`, which is stopped in the background.
 	private(set) var wantsRunning = false
 
-	init(displayName: String) {
-		talk = Self.makeTalk(displayName: displayName)
+	init(displayName: String, options: LaunchOptions = .current) {
+		self.options = options
+		blocked = options.blocked
+		talk = Self.makeTalk(displayName: displayName, options: options)
+		acceptBlobs = options.acceptBlobs
+		if options.hasControl {
+			control = ControlCenter(model: self, options: options)
+		}
 		setUp()
 		// launch argument `-autostart YES` for scripted runs (e.g. `simctl launch`)
-		if UserDefaults.standard.bool(forKey: "autostart") {
+		if options.autostart {
 			setRunning(true)
 		}
+		control?.start()
 	}
 
 	func setRunning(_ running: Bool) {
@@ -76,14 +91,17 @@ final class DemoModel {
 		talk.stop()
 		bag.removeAll()
 		blobSubscription = nil
-		talk = Self.makeTalk(displayName: displayName)
+		talk = Self.makeTalk(displayName: displayName, options: options)
+		talk.debugSetBlocked(blocked)
 		setUp()
 		if wantsRunning {
 			talk.start()
 		}
 	}
 
-	func sendChat(_ text: String) async {
+	/// Broadcasts a chat message; the results are per peer.
+	@discardableResult
+	func sendChat(_ text: String) async -> [Peer.ID: Result<Void, TalkError>] {
 		let chat = Chat(text: text, date: .now)
 		append(Line(date: chat.date, from: talk.me.name, text: text), to: \.chat)
 		let results = await talk.send(chat)
@@ -92,21 +110,39 @@ final class DemoModel {
 				append(Line(date: .now, from: name(of: id), text: "not delivered: \(error)", isError: true), to: \.chat)
 			}
 		}
+		return results
 	}
 
-	func sendBlob(to peer: Peer) async {
+	/// Sends `megabytes` (default: the picker's size) of random data; returns the seconds it took.
+	@discardableResult
+	func sendBlob(to peer: Peer, megabytes: Int? = nil) async -> Result<Double, TalkError> {
 		sendingBlob.insert(peer.id)
 		defer { sendingBlob.remove(peer.id) }
-		let size = blobSize
+		let size = megabytes ?? blobSize
 		let blob = await Blob.random(megabytes: size)
 		let start = ContinuousClock.now
+		control?.log("blob.send.start", ["peer": peer.id.uuidString, "name": peer.name, "mb": size])
 		do {
 			try await talk.send(blob, to: peer)
+			let seconds = Self.interval(since: start)
 			append(Line(date: .now, from: peer.name, text: "sent \(size) MB in \(Self.seconds(since: start))"), to: \.blobLog)
+			transferStats.noteSent(peer: peer.name, mb: size, seconds: seconds, error: nil)
+			control?.log("blob.send.end", ["peer": peer.id.uuidString, "name": peer.name, "mb": size, "ok": true, "seconds": seconds])
+			return .success(seconds)
 		}
 		catch {
+			let seconds = Self.interval(since: start)
 			append(Line(date: .now, from: peer.name, text: "send failed: \(error)", isError: true), to: \.blobLog)
+			transferStats.noteSent(peer: peer.name, mb: size, seconds: seconds, error: "\(error)")
+			control?.log("blob.send.end", ["peer": peer.id.uuidString, "name": peer.name, "mb": size, "ok": false, "error": "\(error)", "seconds": seconds])
+			return .failure(error)
 		}
+	}
+
+	/// Blocks (or unblocks, with an empty set) devices by display name in the link layer.
+	func setBlocked(_ names: Set<String>) {
+		blocked = names
+		talk.debugSetBlocked(names)
 	}
 
 	func name(of id: Peer.ID) -> String {
@@ -115,21 +151,28 @@ final class DemoModel {
 
 	// MARK: - private
 
-	private static func makeTalk(displayName: String) -> Talk {
-		Talk(serviceType: "bomtalk-demo", appID: "de.werk01.BOMTalkSample", displayName: displayName)
+	private static func makeTalk(displayName: String, options: LaunchOptions) -> Talk {
+		guard options.needsDebugTalk else {
+			return Talk(serviceType: "bomtalk-demo", appID: "de.werk01.BOMTalkSample", displayName: displayName)
+		}
+		let debug = TalkDebugOptions(linkCap: options.linkCap, ephemeralIdentity: options.ephemeral, blockedNames: options.blocked)
+		return Talk(serviceType: "bomtalk-demo", appID: "de.werk01.BOMTalkSample", displayName: displayName, debug: debug)
 	}
 
 	/// Sets the info before any `start()`, so it is advertised right away.
 	private func setUp() {
 		talk.info["emoji"] = emoji
+		control?.attach(talk)
 		talk.messages(Chat.self)
 			.sink { [weak self] result in
 				guard let self else { return }
 				switch result {
 				case .success(let received):
 					append(Line(date: received.message.date, from: received.peer.name, text: received.message.text), to: \.chat)
+					transferStats.chatReceived += 1
 				case .failure(let error):
 					append(Line(date: .now, from: "–", text: "receive failed: \(error)", isError: true), to: \.chat)
+					control?.log("receive.failed", ["kind": Chat.kind, "error": "\(error)"])
 				}
 			}
 			.store(in: &bag)
@@ -151,8 +194,12 @@ final class DemoModel {
 					let size = ByteCountFormatter.string(fromByteCount: Int64(received.message.data.count), countStyle: .file)
 					let duration = incomingStart.removeValue(forKey: received.peer.id).map { " in \(Self.seconds(since: $0))" } ?? ""
 					append(Line(date: .now, from: received.peer.name, text: "received \(size)\(duration)"), to: \.blobLog)
+					transferStats.noteReceived(peer: received.peer.name, bytes: received.message.data.count)
+					control?.log("blob.received", ["peer": received.peer.id.uuidString, "name": received.peer.name, "bytes": received.message.data.count])
 				case .failure(let error):
 					append(Line(date: .now, from: "–", text: "receive failed: \(error)", isError: true), to: \.blobLog)
+					transferStats.noteReceiveFailed()
+					control?.log("receive.failed", ["kind": Blob.kind, "error": "\(error)"])
 				}
 			}
 	}
@@ -162,6 +209,11 @@ final class DemoModel {
 
 	func noteIncomingStarted(from peer: Peer.ID) {
 		incomingStart[peer] = incomingStart[peer] ?? .now
+	}
+
+	private static func interval(since start: ContinuousClock.Instant) -> Double {
+		let duration = ContinuousClock.now - start
+		return Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
 	}
 
 	private static func seconds(since start: ContinuousClock.Instant) -> String {

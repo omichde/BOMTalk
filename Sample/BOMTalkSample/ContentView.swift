@@ -25,6 +25,9 @@ struct ContentView: View {
 		}
 		.task {
 			guard model == nil else { return }
+			if let label = LaunchOptions.current.label {
+				displayName = label	// launch argument `-label`, e.g. `rig-3`
+			}
 			if displayName.isEmpty {
 				displayName = await Self.defaultName()
 			}

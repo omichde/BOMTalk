@@ -12,6 +12,11 @@
 		29D2E362D3A1127375BE2D33 /* BOMTalk in Frameworks */ = {isa = PBXBuildFile; productRef = 0444B39750625CC4066093F3 /* BOMTalk */; };
 		73FA6BC20F7D7E27EC214432 /* DemoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B6999B746B4CE8EC13441B /* DemoModel.swift */; };
 		BA259C5431EC4EFBD361D8D3 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85EDB618DBE9AF9A6AF7E12E /* ContentView.swift */; };
+		0327FCEBE36A7D5242FDA242 /* ControlCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A672B21D61A5C032424C4ACA /* ControlCenter.swift */; };
+		2011BB5E0C29E534C9709282 /* EventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22E34867615355EE25CDE599 /* EventLog.swift */; };
+		4A55BA30ACCA1B25BA0BA04F /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2BEF4E947DA1F6B5914C109 /* HTTPServer.swift */; };
+		0035AB6E7497E2ED6E8E7EFE /* LaunchOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01AC80D126BE2B765BFFB799 /* LaunchOptions.swift */; };
+		921D19EA0FAA4DA53F38FAEE /* SoakStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405E0B8EAC8961ACB23B9638 /* SoakStats.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +28,11 @@
 		85EDB618DBE9AF9A6AF7E12E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A220512DB81415DD1AC609C1 /* BOMTalk */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BOMTalk; path = ..; sourceTree = SOURCE_ROOT; };
 		CE98E5D892D41EBC84BC68BE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A672B21D61A5C032424C4ACA /* ControlCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlCenter.swift; sourceTree = "<group>"; };
+		22E34867615355EE25CDE599 /* EventLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLog.swift; sourceTree = "<group>"; };
+		B2BEF4E947DA1F6B5914C109 /* HTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
+		01AC80D126BE2B765BFFB799 /* LaunchOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchOptions.swift; sourceTree = "<group>"; };
+		405E0B8EAC8961ACB23B9638 /* SoakStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoakStats.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,9 +61,14 @@
 				4C4D362528B883CAEA2CA278 /* BOMTalkSample.entitlements */,
 				16E5E97C06168E6F190686A4 /* BOMTalkSampleApp.swift */,
 				85EDB618DBE9AF9A6AF7E12E /* ContentView.swift */,
+				A672B21D61A5C032424C4ACA /* ControlCenter.swift */,
 				66B6999B746B4CE8EC13441B /* DemoModel.swift */,
+				22E34867615355EE25CDE599 /* EventLog.swift */,
+				B2BEF4E947DA1F6B5914C109 /* HTTPServer.swift */,
 				CE98E5D892D41EBC84BC68BE /* Info.plist */,
+				01AC80D126BE2B765BFFB799 /* LaunchOptions.swift */,
 				2E738EDDDEFE1B6314B69711 /* Messages.swift */,
+				405E0B8EAC8961ACB23B9638 /* SoakStats.swift */,
 			);
 			path = BOMTalkSample;
 			sourceTree = "<group>";
@@ -140,8 +155,13 @@
 			files = (
 				200D722EE6154C637449584D /* BOMTalkSampleApp.swift in Sources */,
 				BA259C5431EC4EFBD361D8D3 /* ContentView.swift in Sources */,
+				0327FCEBE36A7D5242FDA242 /* ControlCenter.swift in Sources */,
 				73FA6BC20F7D7E27EC214432 /* DemoModel.swift in Sources */,
+				2011BB5E0C29E534C9709282 /* EventLog.swift in Sources */,
+				4A55BA30ACCA1B25BA0BA04F /* HTTPServer.swift in Sources */,
+				0035AB6E7497E2ED6E8E7EFE /* LaunchOptions.swift in Sources */,
 				2860F3A8679AE127D00828AF /* Messages.swift in Sources */,
+				921D19EA0FAA4DA53F38FAEE /* SoakStats.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
