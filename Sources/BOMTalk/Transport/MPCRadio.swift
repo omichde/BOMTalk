@@ -41,7 +41,10 @@ extension LinkTransport where Radio == MPCRadio {
 ///
 /// Sending happens off the main actor, one serial queue per peer (`Outbox`): `MCSession.send` may
 /// block while MPC's buffer for a slow or vanished peer is full, and on the main actor that froze the
-/// whole app (rig runs with blobs: instances stopped answering for good).
+/// whole app (rig runs with blobs: instances stopped answering for good). Invitations, cancels and the
+/// final `disconnect` go to one serial queue per run (`SessionControl`), in order: they may block as
+/// well (rig soak: the main actor stood still for 2 s when an instance stopped, for 10 s when a
+/// wedged one reset its radio).
 @MainActor
 final class MPCRadio: LinkRadio {
 
@@ -55,6 +58,7 @@ final class MPCRadio: LinkRadio {
 		var advertiser: MCNearbyServiceAdvertiser
 		let browser: MCNearbyServiceBrowser
 		let proxy: MPCDelegateProxy
+		let control: SessionControl
 		var outboxes: [MCPeerID: Outbox] = [:]
 	}
 
@@ -84,7 +88,7 @@ final class MPCRadio: LinkRadio {
 		session.delegate = proxy
 		browser.delegate = proxy
 		let advertiser = makeAdvertiser(proxy: proxy, discoveryInfo: discoveryInfo)
-		services = Services(session: session, advertiser: advertiser, browser: browser, proxy: proxy)
+		services = Services(session: session, advertiser: advertiser, browser: browser, proxy: proxy, control: SessionControl(session: session, browser: browser))
 		advertiser.startAdvertisingPeer()
 		browser.startBrowsingForPeers()
 	}
@@ -97,7 +101,10 @@ final class MPCRadio: LinkRadio {
 		services.advertiser.delegate = nil
 		services.browser.delegate = nil
 		services.session.delegate = nil
-		services.session.disconnect()
+		for outbox in services.outboxes.values {
+			outbox.close()
+		}
+		services.control.disconnect()
 	}
 
 	func restartAdvertiser(discoveryInfo: [String: String]) {
@@ -110,13 +117,14 @@ final class MPCRadio: LinkRadio {
 	}
 
 	func invite(_ handle: MCPeerID, context: Data?, timeout: TimeInterval) {
-		guard let services else { return }
-		services.browser.invitePeer(handle, to: services.session, withContext: context, timeout: timeout)
+		services?.control.invite(handle, context: context, timeout: timeout)
 	}
 
 	func cancel(_ handle: MCPeerID) {
-		services?.session.cancelConnectPeer(handle)
-		services?.outboxes[handle] = nil
+		guard let services else { return }
+		services.control.cancel(handle)
+		services.outboxes[handle]?.close()
+		self.services?.outboxes[handle] = nil
 	}
 
 	/// Queues the data for the peer; throws if the peer's backlog is full (`MPCPolicy.sendBacklog`).
@@ -165,6 +173,7 @@ final class MPCRadio: LinkRadio {
 			}))
 		case let .state(peerID, state):
 			if state == .notConnected {
+				services.outboxes[peerID]?.close()
 				self.services?.outboxes[peerID] = nil
 			}
 			onEvent(.state(peerID, state))
@@ -187,14 +196,19 @@ final class MPCRadio: LinkRadio {
 }
 
 /// Sends to one peer of a session in order, on its own serial queue, and bounds what waits there.
+/// Frames queue up under a lock and one drain on the queue hands them to MPC until none is left, so a
+/// burst costs one dispatch, not one per frame.
 private final class Outbox: @unchecked Sendable {
 
 	private let session: MCSession
 	private let peer: MCPeerID
 	private let queue: DispatchQueue
 	private let lock = NSLock()
-	/// Bytes queued and not handed to MPC yet; only under `lock`.
+	/// Frames not handed to MPC yet, their bytes (including the frame being sent) and whether a drain
+	/// is scheduled or running; only under `lock`.
+	private var pending: [Data] = []
 	private var backlog = 0
+	private var draining = false
 	private static let logger = Logger.bomtalk("transport")
 
 	init(session: MCSession, peer: MCPeerID) {
@@ -206,20 +220,88 @@ private final class Outbox: @unchecked Sendable {
 	/// Throws if `MPCPolicy.sendBacklog` bytes already wait (one frame always fits).
 	func send(_ data: Data) throws {
 		let count = data.count
-		let accepted = lock.withLock {
-			guard backlog == 0 || backlog + count <= MPCPolicy.sendBacklog else { return false }
+		let startDrain: Bool? = lock.withLock {
+			guard backlog == 0 || backlog + count <= MPCPolicy.sendBacklog else { return nil }
 			backlog += count
-			return true
+			pending.append(data)
+			let start = !draining
+			draining = true
+			return start
 		}
-		guard accepted else { throw TalkError.sendFailed("send backlog full") }
-		queue.async { [self] in
-			do {
-				try session.send(data, toPeers: [peer], with: .reliable)
-			} catch {
-				Self.logger.debug("sending to \(self.peer.displayName, privacy: .public) failed: \(error, privacy: .public)")
+		guard let startDrain else { throw TalkError.sendFailed("send backlog full") }
+		if startDrain {
+			queue.async { [self] in
+				drain()
 			}
-			lock.withLock { backlog -= count }
 		}
+	}
+
+	/// The link is gone: frames still waiting are dropped (a frame MPC is busy with completes or fails).
+	func close() {
+		lock.withLock {
+			backlog -= pending.reduce(0) { $0 + $1.count }
+			pending = []
+		}
+	}
+
+	private func drain() {
+		while true {
+			let batch: [Data] = lock.withLock {
+				let batch = pending
+				pending = []
+				draining = !batch.isEmpty
+				return batch
+			}
+			guard !batch.isEmpty else { return }
+			for data in batch {
+				do {
+					try session.send(data, toPeers: [peer], with: .reliable)
+				} catch {
+					Self.logger.debug("sending to \(self.peer.displayName, privacy: .public) failed: \(error, privacy: .public)")
+				}
+				lock.withLock { backlog -= data.count }
+			}
+		}
+	}
+}
+
+/// Invitations, cancels and the final disconnect of one run's session, in order on a serial queue:
+/// MPC may block in any of them (a wedged session, a send blocked in an `Outbox`), never the main
+/// actor. A later run has its own queue, so a blocked teardown does not delay it.
+private final class SessionControl: @unchecked Sendable {
+
+	private let session: MCSession
+	private let browser: MCNearbyServiceBrowser
+	private let queue = DispatchQueue(label: "de.werk01.BOMTalk.control", qos: .userInitiated)
+
+	init(session: MCSession, browser: MCNearbyServiceBrowser) {
+		self.session = session
+		self.browser = browser
+	}
+
+	func invite(_ peer: MCPeerID, context: Data?, timeout: TimeInterval) {
+		let peer = Unchecked(value: peer)
+		queue.async { [self] in
+			browser.invitePeer(peer.value, to: session, withContext: context, timeout: timeout)
+		}
+	}
+
+	func cancel(_ peer: MCPeerID) {
+		let peer = Unchecked(value: peer)
+		queue.async { [self] in
+			session.cancelConnectPeer(peer.value)
+		}
+	}
+
+	func disconnect() {
+		queue.async { [self] in
+			session.disconnect()
+		}
+	}
+
+	/// `MCPeerID` is immutable but not annotated `Sendable`.
+	private struct Unchecked<Value>: @unchecked Sendable {
+		let value: Value
 	}
 }
 
