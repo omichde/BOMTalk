@@ -482,6 +482,7 @@ final class RelayTransport: Transport {
 			guard let entry = entries[id], now - entry.updated >= RelayPolicy.helloExpiry else { continue }
 			changed = true
 			entries[id] = nil
+			counters.entriesExpired += 1
 			topologyChangedAt = now
 			tombstones[id] = Tombstone(version: entry.hello.version, until: now + RelayPolicy.tombstoneDuration)
 		}
@@ -897,6 +898,8 @@ struct RelayCounters: Sendable, Equatable {
 	var hellosForwarded = 0
 	/// Data frames passed on to the next hop.
 	var dataForwarded = 0
+	/// Map entries removed without a fresh hello for `helloExpiry`.
+	var entriesExpired = 0
 	var drops: [Drop: Int] = [:]
 	/// Redundant links we unlinked.
 	var voluntaryDrops = 0

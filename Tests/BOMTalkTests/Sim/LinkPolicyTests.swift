@@ -205,10 +205,9 @@ import Testing
 		#expect(inboxA.messages.count == 1 && inboxOut.messages.count == 1)
 		let busy = [Set([a, incoming]), Set([a, outgoing])]
 		#expect(!net.linkChanges.contains { !$0.up && $0.at < done && busy.contains(Set([$0.a, $0.b])) })
-		// a received over `incoming` all along: never picked while data arrived. (`outgoing` may be
-		// picked: a sender cannot see its queue drain. The unlink queues behind the data, so the link
-		// still goes only after the transfer.)
-		#expect(!net.drops.contains { $0.device == a && $0.neighbour == incoming && $0.at < done - RelayPolicy.dataQuiet })
+		// a received over `incoming` and sent over `outgoing` all along: neither picked while data
+		// flowed (flow control keeps the sender's queue short, so it sends until the transfer ends)
+		#expect(!net.drops.contains { $0.device == a && [incoming, outgoing].contains($0.neighbour) && $0.at < done - RelayPolicy.dataQuiet })
 		await net.run(for: .seconds(60))
 		#expect(net.allConnected)
 		#expect(net.maxLinks <= 3)
