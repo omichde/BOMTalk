@@ -26,7 +26,7 @@ struct SimConfig {
 	var generations: [Int: Int] = [:]
 	/// Time step of `run(for:)` / `run(until:)`.
 	var step: Duration = .milliseconds(10)
-	/// Main actor yields per step while any device has a `Talk`, so its tasks can run.
+	/// Main actor yields per step while any device has a `Talk`, so its tasks can run (otherwise one).
 	var yields = 10
 	/// Talk timeouts are real time, not virtual.
 	var offerTimeout: Duration = .seconds(30)
@@ -118,6 +118,14 @@ final class SimNetwork {
 		let timeout: TimerToken
 	}
 
+	/// A session link between two devices came up (`connected`) or a connected one went down.
+	struct LinkChange: Equatable {
+		let at: Duration
+		let a: Int
+		let b: Int
+		let up: Bool
+	}
+
 	let timers = ManualTimers()
 	let config: SimConfig
 	private(set) var devices: [SimDevice] = []
@@ -125,6 +133,8 @@ final class SimNetwork {
 	private(set) var log: [String] = []
 	/// Accepted invitations that failed because a session was full.
 	private(set) var capRefusals = 0
+	/// Every change of a connected session link, in order.
+	private(set) var linkChanges: [LinkChange] = []
 	/// Violations of the `TransportEvent` ordering rules by any device's top transport, see
 	/// `TransportContract`. Each one is also recorded as a test issue.
 	private(set) var contractViolations: [String] = []
@@ -137,6 +147,7 @@ final class SimNetwork {
 	private var links: [Pair: Link] = [:]
 	private var invites: [Edge: Invite] = [:]
 	private var lastInvite = 0
+	private var invitationCounts: [Pair: Int] = [:]
 
 	/// - Parameters:
 	///   - talk: Wraps every device in a `Talk` (not started).
@@ -306,6 +317,16 @@ final class SimNetwork {
 		links[Pair(a, b)]?.isConnected ?? false
 	}
 
+	/// Invitations sent between two devices so far, both directions.
+	func invitations(_ a: Int, _ b: Int) -> Int {
+		invitationCounts[Pair(a, b)] ?? 0
+	}
+
+	/// Invitations sent by anyone so far.
+	var totalInvitations: Int {
+		invitationCounts.values.reduce(0, +)
+	}
+
 	// MARK: - Running
 
 	/// Fires everything due now and, with talks, yields to their tasks until nothing more is due.
@@ -338,8 +359,9 @@ final class SimNetwork {
 		return true
 	}
 
+	/// Without talks once, so long runs never hog the main actor (other suites' real-time tests).
 	private func yield() async {
-		guard devices.contains(where: { $0.talk != nil }) else { return }
+		guard devices.contains(where: { $0.talk != nil }) else { return await Task.yield() }
 		for _ in 0 ..< config.yields {
 			await Task.yield()
 		}
@@ -377,6 +399,7 @@ final class SimNetwork {
 	func invite(from a: Int, to b: Int, context: Data?, timeout: TimeInterval) {
 		let edge = Edge(from: a, to: b)
 		invites.removeValue(forKey: edge)?.timeout.cancel()
+		invitationCounts[Pair(a, b), default: 0] += 1
 		lastInvite += 1
 		let id = lastInvite
 		let token = timers.schedule(after: .seconds(timeout)) { [unowned self] in
@@ -433,7 +456,9 @@ final class SimNetwork {
 			return
 		}
 		let pair = Pair(a, b)
-		links[pair] = nil	// a fresh invitation replaces an old link silently
+		if links.removeValue(forKey: pair)?.isConnected == true {	// a fresh invitation replaces an old link silently
+			linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: false))
+		}
 		guard sessionPeers(a).count < config.sessionCapacity - 1, sessionPeers(b).count < config.sessionCapacity - 1 else {
 			capRefusals += 1
 			post(a, after: config.handshake) { .state(SimHandle(index: b), .notConnected) }
@@ -447,13 +472,17 @@ final class SimNetwork {
 		timers.schedule(after: config.handshake) { [unowned self] in
 			guard links[pair] === link else { return }
 			link.isConnected = true
+			linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: true))
 			post(a) { .state(SimHandle(index: b), .connected) }
 			post(b) { .state(SimHandle(index: a), .connected) }
 		}
 	}
 
 	private func dropLink(_ pair: Pair) {
-		guard links.removeValue(forKey: pair) != nil else { return }
+		guard let link = links.removeValue(forKey: pair) else { return }
+		if link.isConnected {
+			linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: false))
+		}
 		post(pair.low) { .state(SimHandle(index: pair.high), .notConnected) }
 		post(pair.high) { .state(SimHandle(index: pair.low), .notConnected) }
 	}
