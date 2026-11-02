@@ -594,6 +594,11 @@ Rig results per build (8 iOS 27.2 simulators unless noted, outputs in `Sample/Ri
 | phase 2 (`b922764`) | PASS (4) | rig error, then PASS | PASS | PASS 1.64 MB/s | FAIL partitioned | – (no-blob variant PASS) |
 | fresh peer id, no starving (`b24828a`) | FAIL (1 device wedged) | PASS | FAIL (isolated end wedged) | PASS 1.63 MB/s | PASS, healed 34 s | rig error (app silent) |
 | radio reset, async sends (`3087dc9`) | PASS | PASS | FAIL (wedged pair, linked) | PASS 1.39 / 1.64 MB/s | FAIL 0.7575, healed 74 s | |
+| reset while linked, MPC control off main (`7b1c824`) | PASS 4 s | PASS 8 s, 7 hops | PASS, regained 6 s | PASS 1.63 MB/s | PASS 0.8696, healed 36 s | PASS 0.8387, healed 52 s |
+
+`7b1c824` is the first build with every scenario green in one run: zero voluntary drops, no main-actor
+lag over 1 s (max 292 ms), link changes 1.75 / 4.46 per instance and minute. One run each; repeat
+runs and real devices are still to do.
 
 - Correction: the "host degradation" was not BOMTalk's nor the host's. The rig erased simulators to
   recover, and an erased simulator shows the Local Network permission prompt again; while it is
