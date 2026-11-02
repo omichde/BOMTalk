@@ -87,7 +87,7 @@ import Testing
 				progress.insert(incoming.completedBytes)
 			}
 			return blobs.results.count == 1
-		}, limit: .seconds(20)))
+		}, limit: .seconds(60)))	// includes encoding in real time
 		try await blobSending.value
 		#expect(blobs.messages == [blob])
 		#expect(progress.count >= 3)	// observed in between, not just at 0 and done
@@ -125,11 +125,10 @@ import Testing
 		#expect(net.contractViolations.isEmpty)
 	}
 
-	/// Ring of 9, one link drops: the long way round (8 hops, right at the hop limit) keeps everyone
-	/// connected, nobody sees a `disconnected` or `lost`. (A ring of 10 would leave the two ends of the
-	/// dropped link 9 hops apart until it reconnects.)
+	/// Ring of 10, one link drops: the long way round (9 hops) keeps everyone connected, nobody sees
+	/// a `disconnected` or `lost`.
 	@Test func ringSurvivesLinkDrop() async {
-		let net = SimNetwork(count: 9, seed: 13, wrap: SimNetwork.relay)
+		let net = SimNetwork(count: 10, seed: 13, wrap: SimNetwork.relay)
 		net.ring()
 		net.startAll()
 		#expect(await net.run(until: { net.allConnected }, limit: .seconds(15)))
@@ -137,7 +136,7 @@ import Testing
 		let mark = net.log.count
 		net.drop(0, 1)
 		await net.settle()
-		#expect(net.hops(0, 1) == 8)	// rerouted at once
+		#expect(net.hops(0, 1) == 9)	// rerouted at once
 		await net.run(for: .seconds(30))
 		let after = net.log[mark...]
 		#expect(!after.contains { $0.contains(" disconnected ") || $0.contains(" lost ") })
@@ -204,7 +203,7 @@ import Testing
 		var config = SimConfig()
 		config.bandwidth = 1_000_000
 		config.chunkTimeout = .seconds(1)
-		config.offerTimeout = .seconds(5)
+		config.offerTimeout = .seconds(30)	// real time, other suites share the main actor
 		let net = SimNetwork(count: 6, seed: 16, config: config, talk: true, wrap: SimNetwork.relay)
 		net.ring()
 		net.startAll()
@@ -221,7 +220,8 @@ import Testing
 				sent = .failure(error)
 			}
 		}
-		#expect(await net.run(until: { (d.transfers.first?.completedBytes ?? 0) > 0 }, limit: .seconds(10)))
+		// encoding runs off the main actor in real time, virtual time passes meanwhile
+		#expect(await net.run(until: { (d.transfers.first?.completedBytes ?? 0) > 0 }, limit: .seconds(60)))
 		let first = try #require(net.route(0, 3))
 		net.blackhole(0, first)
 
@@ -238,9 +238,10 @@ import Testing
 			#expect([TalkError.timeout, .peerDisconnected].contains(error))
 		}
 
+		// silent for `helloExpiry`: routed around; for `stalledDisconnect`: replaced by a fresh link
 		await net.run(for: RelayPolicy.helloExpiry + .seconds(2))
 		let second = try #require(net.route(0, 3))
-		#expect(second != first)
+		#expect(second != first || net[0].relay.snapshot.counters.stalledDisconnects == 1)
 		let chats = Inbox<Chat>(d)
 		let sending = Task { try await a.send(Chat(text: "around"), to: try #require(a.peer(d))) }
 		#expect(await net.run(until: { chats.messages.count == 1 }, limit: .seconds(5)))
@@ -251,17 +252,18 @@ import Testing
 	/// Hellos travel at most `hopLimit` hops, data frames die at the limit or without a route, and
 	/// nothing keeps circulating once traffic stops.
 	@Test func hopLimit() async throws {
-		let net = SimNetwork(count: 10, seed: 17, wrap: SimNetwork.relay)
+		let limit = Int(RelayPolicy.hopLimit), last = limit + 1
+		let net = SimNetwork(count: limit + 2, seed: 17, wrap: SimNetwork.relay)
 		net.line()
 		net.startAll()
-		#expect(await net.run(until: { net[0].peers(.connected) == Array(1 ... 8) && net[9].peers(.connected) == Array(1 ... 8) }, limit: .seconds(15)))
+		#expect(await net.run(until: { net[0].peers(.connected) == Array(1 ... limit) && net[last].peers(.connected) == Array(1 ... limit) }, limit: .seconds(20)))
 		await net.run(for: .seconds(5))
-		#expect(net.hops(0, 8) == 8)
-		#expect(net[0].peers[net[9].id] == nil)	// 9 hops away: never heard of
-		#expect(throws: TalkError.notConnected) { try net[0].transport.send(Data([1]), to: net[9].id) }
+		#expect(net.hops(0, limit) == limit)
+		#expect(net[0].peers[net[last].id] == nil)	// one hop too far: never heard of
+		#expect(throws: TalkError.notConnected) { try net[0].transport.send(Data([1]), to: net[last].id) }
 
 		// injected from 4's lower link into 5
-		let exhausted = RelayEnvelope(kind: .data, hopLimit: 1, origin: net[4].id, destination: net[9].id, payload: Data([1]))
+		let exhausted = RelayEnvelope(kind: .data, hopLimit: 1, origin: net[4].id, destination: net[last].id, payload: Data([1]))
 		let nowhere = RelayEnvelope(kind: .data, hopLimit: 8, origin: net[4].id, destination: UUID(), payload: Data([2]))
 		try net[4].link.send(exhausted.encoded(), to: net[5].id)
 		try net[4].link.send(nowhere.encoded(), to: net[5].id)

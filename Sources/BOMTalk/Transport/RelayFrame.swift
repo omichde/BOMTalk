@@ -8,11 +8,15 @@ import Foundation
 /// Wraps every frame between neighbours, hand-written binary format like `Frame`.
 ///
 /// Header (37 bytes): magic `"BR"`, format version, type, hop limit, origin UUID, destination UUID,
-/// followed by the payload: a Talk frame (`data`) or a `RelayHello` (`hello`, destination all-zero).
+/// followed by the payload: a Talk frame (`data`), a `RelayHello` (`hello`, destination all-zero) or
+/// nothing (`unlink`, to a direct neighbour only).
 struct RelayEnvelope: Sendable, Equatable {
 
 	enum Kind: UInt8, Sendable {
 		case data = 1, hello
+		/// The sender drops the direct link on purpose (redundant): the receiver disconnects and
+		/// neither side links again while they reach each other via relay.
+		case unlink
 	}
 
 	let kind: Kind
@@ -79,8 +83,11 @@ struct RelayHello: Sendable, Equatable {
 
 	struct Flags: OptionSet, Sendable, Hashable {
 		let rawValue: UInt8
-		/// Reserved for the link policy: the device has its bridge slot free.
+		/// The device has its bridge slot free (diagnostics).
 		static let bridgeSlotFree = Flags(rawValue: 1 << 0)
+		/// The device has no regular slot free: reachable devices don't invite it (it would decline).
+		/// Set rather than "free", so a device without a link policy is never taken for full.
+		static let regularSlotsFull = Flags(rawValue: 1 << 1)
 	}
 
 	/// Orders the hellos of one origin: epoch first (set at each start), then seq.
@@ -125,6 +132,13 @@ struct RelayHello: Sendable, Equatable {
 		writer.data(name)
 		writer.data(plist)
 		return writer.data
+	}
+
+	/// The version of an encoded hello without decoding the rest; nil if too short.
+	static func version(of data: Data) -> Version? {
+		var reader = ByteReader(data)
+		guard let epoch = reader.uint64(), let seq = reader.uint64() else { return nil }
+		return Version(epoch: epoch, seq: seq)
 	}
 
 	/// Returns nil for malformed data.
