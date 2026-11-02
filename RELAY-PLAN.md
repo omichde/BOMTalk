@@ -1,6 +1,7 @@
 # BOMTalk relay – beyond 8 devices
 
-Branch: `feature/relay`. Status: phase 1 (foundations) and phase 3 (RelayTransport) done; `-autostart` in the Sample.
+Branch: `feature/relay`. Status: phase 1 (foundations), phase 3 (RelayTransport) and phase 4 (link policy)
+done; `-autostart` in the Sample.
 
 ## Problem
 
@@ -122,7 +123,7 @@ Each device keeps **6 regular links + 1 bridge link**.
 | triggered hello min gap | 500 ms |
 | minimum link age | 30 s |
 | voluntary drop rate | 1 / 10 s |
-| hop limit | 8 |
+| hop limit | 16 (phase 4; was 8) |
 | dedupe window | 30 s |
 
 ## Changes to existing code
@@ -241,6 +242,46 @@ optional later add-on for interactive use.
      the hello once there is one.
 4. **Link policy** – 6 + 1, admission hook, redundant drop, all stability precautions. *Done when* the
    two-cliques merge and no-flapping scenarios pass.
+   **Done:** `LinkPolicy` / `LinkControl` (`LinkControl.swift`), slot split `LinkSlots` (`MPCPolicy`),
+   policy timings in `RelayPolicy`, `LinkPolicyTests` (16 / 30 / 40 devices, two cliques, unlink, busy
+   link, cap 2 line and ring, stalled link, churn, determinism). Decisions that differ from the text above:
+   - **Seam instead of an admission callback.** `MPCPeerMachine` stays pure and is *told* a `LinkPolicy`
+     (bridge candidates, suppressed, full) plus `disconnect(id)`; it decides admission itself. The relay
+     uses `LinkControl` when its lower transport conforms (`LinkTransport`); `Transport` is unchanged and
+     the split only applies once a policy is set, so a bare `LinkTransport` keeps first come, first served
+     up to its cap. `LinkTransport` queues actions of machine calls made from within its own `onEvent`
+     behind the pending ones (no re-entrant event order).
+   - **Slots are counted, not assigned.** Regular admission while fewer than `regular` links are pending
+     or connected, the bridge slot only for a candidate on top. A bridge "becomes regular" simply when
+     another link goes. Small caps: bridge = 1, regular = cap − 1, at least one regular (cap 2 = 1 + 1,
+     cap 1 = 1 + 0).
+   - **Grace = bridge delay**: a visible device must stay unreachable for 5 s ± 20 % (more than one
+     hello interval). A pending invitation does not restart it.
+   - **Unlink handshake**: the dropper sends `unlink` (envelope kind 3) and stops using the link; the
+     *receiver* disconnects once the link carried no data for 5 s. The frame queues behind data still in
+     flight, so a transfer the dropper cannot see (a sender's own queue) still completes. The dropper
+     uses the link again if it is still up after 60 s (the receiver did not act). Both sides suppress
+     each other until the other becomes a bridge candidate (unreachable for the bridge delay) or 5 min.
+   - **Drop decision**: with all slots in use, the redundant neighbour (reachable without the direct
+     edge, BFS) with the highest map degree, ties by UUID; only links ≥ 30 s old and without data for
+     5 s; one drop per 10 s; and only once the map was stable (no edge change anywhere) for 5 s ± 20 %.
+     Bridge and drop decisions fire on their own timers, so the jitter isn't rounded to the 1 s sweep
+     (it was: two ends of a ring dropped at the same instant and split it). After an unlink both ends
+     send their hello at once instead of waiting for the 500 ms gap, so others postpone their drops.
+   - **`regularSlotsFull` hello flag** in addition to `bridgeSlotFree` (which is diagnostics only):
+     reachable devices without a free regular slot are not invited (they would decline). Without it
+     every device with a free slot re-invited every visible full device every 30 s forever. Set as
+     "full" rather than "free", so a device without a policy is never taken for full.
+   - **Stalled links** (silent 15 s) are disconnected in the lower transport; reconnect follows with
+     backoff on a fresh session.
+   - **Hop limit 16**; the ring test is back to 10 devices, the hop limit test uses a line of 18.
+   - **Relay generation stays 3**: phase 3 never shipped, so no build without `unlink` exists.
+   - Performance (debug, simulator): hellos are deduplicated on their version before decoding, unchanged
+     periodic hellos only renew the entry, the sweep refreshes only when time changed something.
+   - Known limits: a sender's queue in MPC is invisible, so with a queue longer than 60 s behind an
+     unlink the dropper would use the link again rather than wait (flow control, next phase, bounds
+     queues). Two drops of different edges within one hello propagation time (sub-second on devices)
+     can still split the network; the bridge rule merges it again.
 5. **Real devices** – cap 2 on 4 devices, verify `cancelConnectPeer`, soak run. *Done when* a 30 min
    soak with faults shows full delivery or clean failures only.
 6. **Docs** – README behaviour notes (no fixed 8 limit, relay costs), fold this plan into a summary.
