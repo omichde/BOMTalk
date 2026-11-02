@@ -38,7 +38,7 @@ PLANS = {
     "converge": "wait until every instance reaches all others, hold for --stable-seconds",
     "cap2": "-linkCap 2 everywhere: all-to-all via relays, at most 2 links each, hops > 1 exist",
     "heal": "-linkCap 2; take the busiest relay dark for --dark-seconds: others lose it, then all regain it, nobody stays partitioned",
-    "soak": "-soak YES, --minutes with a random dark every --dark-every s; delivery rate, duplicates, gaps, latency, link changes per minute",
+    "soak": "-soak YES, --minutes with a random dark every --dark-every s; time to heal after the last restart, delivery rate (raw and without dark periods), duplicates, gaps, latency, link changes per minute",
     "blob": "forced line via -block; --blob-mb across the longest path; completes, no disconnects, no expired entries",
 }
 REPO = Path(__file__).resolve().parents[2]
@@ -248,6 +248,68 @@ def soak_totals(states: dict[str, Optional[dict]]) -> dict:
     }
 
 
+def dark_windows(timeline: list[tuple[float, Optional[bool], Optional[int]]], grace: float) -> list[tuple[float, float]]:
+    """Periods an instance was not running, from its polls `(time, running, nextSeq)`: from the last
+    poll that saw it running to `grace` seconds after the first one that saw it running again (open
+    ended if it never did). Pings to it in such a period are excused."""
+    windows, last_up, down_since = [], None, None
+    for t, running, _ in timeline:
+        if running is False and down_since is None:
+            down_since = last_up if last_up is not None else t
+        elif running:
+            if down_since is not None:
+                windows.append((down_since, t + grace))
+                down_since = None
+            last_up = t
+    if down_since is not None:
+        windows.append((down_since, float("inf")))
+    return windows
+
+
+def restart_windows(timeline: list[tuple[float, Optional[bool], Optional[int]]], grace: float) -> list[tuple[float, float]]:
+    """The first `grace` seconds after every restart (a poll seeing it running after one that did not):
+    its pings may not reach anyone yet, nobody reaches it yet. Pings it sends then are excused."""
+    windows, was_down = [], False
+    for t, running, _ in timeline:
+        if running is False:
+            was_down = True
+        elif running and was_down:
+            windows.append((t, t + grace))
+            was_down = False
+    return windows
+
+
+def send_time(timeline: list[tuple[float, Optional[bool], Optional[int]]], seq: int) -> Optional[float]:
+    """When an origin sent ping `seq`, approximately: the first poll whose `nextSeq` is beyond it."""
+    for t, _, next_seq in timeline:
+        if next_seq is not None and next_seq > seq:
+            return t
+    return None
+
+
+def soak_adjusted(states: dict[str, Optional[dict]], timelines: dict[str, list], grace: float) -> dict:
+    """Delivery without the pings that could not arrive: missing ones sent while the receiver was
+    dark or had restarted less than `grace` s before, or within `grace` s after the origin restarted.
+    Rate: unique arrivals / (sequence span - excused missing)."""
+    unique = span = excused = 0
+    windows = {label: dark_windows(timeline, grace) for label, timeline in timelines.items()}
+    restarts = {label: restart_windows(timeline, grace) for label, timeline in timelines.items()}
+    inside = lambda t, spans: any(a <= t <= b for a, b in spans)  # noqa: E731
+    for receiver, state in states.items():
+        for origin, s in ((state or {}).get("sample", {}).get("soak", {}).get("origins", {})).items():
+            if not s.get("unique"):
+                continue
+            unique += s["unique"]
+            span += s["lastSeq"] - s["firstSeq"] + 1
+            for seq in s.get("missing", []):
+                t = send_time(timelines.get(origin, []), seq)
+                if t is not None and (inside(t, windows.get(receiver, [])) or inside(t, restarts.get(origin, []))):
+                    excused += 1
+    expected = span - excused
+    return {"delivery": round(unique / expected, 4) if expected > 0 else None, "unique": unique, "expected": expected,
+            "excused": excused, "graceSeconds": grace}
+
+
 def link_changes(events: dict[str, list[dict]], minutes: float, since: float = 0.0) -> dict:
     """Neighbour up / down events (at or after `since`, seconds since 1970) per instance and per
     minute, from the event logs."""
@@ -440,6 +502,8 @@ class Rig:
         self.started = self.clock.now()
         self.rng = random.Random(opts.seed)
         self.mac_pids: dict[str, int] = {}
+        # per instance, every poll: (time, running, soak nextSeq)
+        self.timelines: dict[str, list[tuple[float, Optional[bool], Optional[int]]]] = {}
 
     # ---- setup ----
 
@@ -571,6 +635,11 @@ class Rig:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(self.instances))) as pool:
             states = list(pool.map(lambda i: i.state(), self.instances))
         result = dict(zip(self.labels, states))
+        now = self.clock.now()
+        for label, state in result.items():
+            if state is not None:
+                soak = state.get("sample", {}).get("soak", {})
+                self.timelines.setdefault(label, []).append((now, state.get("app", {}).get("isRunning"), soak.get("nextSeq")))
         if self.states_file:
             record = {"t": round(self.clock.now() - self.started, 2), "scenario": self.current_scenario,
                       "states": {label: summarize_state(s) for label, s in result.items()}}
@@ -710,11 +779,13 @@ class Rig:
             inst.command("resetStats")
         before = self.poll()
         self.soak_since = self.clock.wall()
+        self.timelines = {}
         minutes = self.opts.minutes
         start = self.clock.now()
         end = start + minutes * 60
         next_dark = start + self.opts.dark_every
         darks, last = [], None
+        last_restart = None
         while self.clock.now() < end:
             self.poll()
             if self.clock.now() >= next_dark and self.clock.now() + self.opts.dark_seconds < end:
@@ -722,22 +793,41 @@ class Rig:
                 last = self.rng.choice(choices)
                 self.instance(last).command("dark", seconds=self.opts.dark_seconds)
                 darks.append({"label": last, "at": round(self.clock.now() - start, 1)})
+                last_restart = self.clock.now() + self.opts.dark_seconds
                 next_dark += self.opts.dark_every
             self.clock.sleep(self.opts.poll)
         result.metrics["darks"] = darks
-        # let a running dark period end, stop the pings, let in-flight ones arrive, then read the stats
-        self.clock.sleep(self.opts.dark_seconds + 2)
-        ok, seconds, _ = self.wait_for(lambda s: convergence(s, self.labels)[0], self.opts.heal_timeout)
-        result.check("everyone reaches everyone after the run", ok, f"{seconds:.0f} s" if ok else "partitioned")
+        # heal: from the last restart (or the end of the run), all must reach all within the bound
+        heal_from = last_restart if last_restart is not None else end
+        self.clock.sleep(max(0.0, heal_from - self.clock.now()))
+        healed_at: list[float] = []
+
+        def healed(states: dict) -> bool:
+            ok = convergence(states, self.labels)[0]
+            if ok and not healed_at:
+                healed_at.append(self.clock.now())
+            elif not ok:
+                healed_at.clear()
+            return ok
+
+        ok, _, states = self.wait_for(healed, max(0.0, self.opts.soak_heal_timeout - (self.clock.now() - heal_from)))
+        seconds = round(healed_at[0] - heal_from, 1) if ok else None
+        _, missing = convergence(states, self.labels)
+        result.metrics["healedAfterSeconds"] = seconds
+        result.check(f"everyone reaches everyone within {self.opts.soak_heal_timeout:.0f} s after the last restart", ok,
+                     f"after {seconds:.0f} s" if ok else f"partitioned: {json.dumps(missing, sort_keys=True)}")
         for inst in self.instances:
             inst.command("soak", on=False)
         self.clock.sleep(self.opts.settle_seconds)
         after = self.poll()
         totals = soak_totals(after)
         result.metrics["soak"] = totals
+        adjusted = soak_adjusted(after, self.timelines, self.opts.restart_grace)
+        result.metrics["soakAdjusted"] = adjusted
         result.check("pings were exchanged", totals["unique"] > 0, f"{totals['unique']} unique")
-        delivery = totals["delivery"]
-        result.check(f"delivery rate >= {self.opts.min_delivery}", delivery is not None and delivery >= self.opts.min_delivery, str(delivery))
+        delivery = adjusted["delivery"]
+        result.check(f"delivery rate without dark periods >= {self.opts.min_delivery}", delivery is not None and delivery >= self.opts.min_delivery,
+                     f"{delivery} (raw {totals['delivery']}, {adjusted['excused']} missing pings excused)")
         result.check("no duplicates", totals["duplicates"] == 0, str(totals["duplicates"]))
         result.metrics["expired"] = counter_delta(before, after, "entriesExpired")
         result.metrics["stalledDisconnects"] = counter_delta(before, after, "stalledDisconnects")
@@ -913,7 +1003,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--soak-blob-mb", type=int, default=0, help="soak: also a blob of this size every 30 s")
     p.add_argument("--soak-cap", type=int, default=0, help="soak: link cap (0 = default 7)")
     p.add_argument("--settle-seconds", type=float, default=10.0, help="soak: wait for in-flight pings before reading stats")
-    p.add_argument("--min-delivery", type=float, default=0.8, help="soak: minimum delivery rate")
+    p.add_argument("--min-delivery", type=float, default=0.8, help="soak: minimum delivery rate, pings around dark periods excused")
+    p.add_argument("--restart-grace", type=float, default=30.0, help="soak: pings to or from an instance within this many s after its restart are excused")
+    p.add_argument("--soak-heal-timeout", type=float, default=120.0, help="soak: all must reach all within this many s after the last restart")
     p.add_argument("--max-link-changes", type=float, default=10.0, help="soak: maximum link changes per instance and minute")
     p.add_argument("--blob-mb", type=int, default=10)
     p.add_argument("--blob-timeout", type=float, default=300.0)

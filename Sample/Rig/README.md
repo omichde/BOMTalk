@@ -47,7 +47,7 @@ Every scenario relaunches all instances with its own arguments and run id `<id>-
 | `converge` | none | all reach all within `--converge-timeout` (120 s) and stay so `--stable-seconds` |
 | `cap2` | `-linkCap 2` | all-to-all within `--cap2-timeout` (240 s); never more than 2 links, slots 1 + 1; some route has hops > 1 |
 | `heal` | `-linkCap 2` | the relay most routes go through is `dark` for `--dark-seconds` (25): all others drop it from their routes, it runs again, all reach all within `--heal-timeout` (150 s) |
-| `soak` | `-soak YES` (+ `-soakBlobMB`, `-linkCap`) | after convergence and `resetStats`: `--minutes` of pings with a random instance dark for `--dark-seconds` every `--dark-every` s; delivery rate >= `--min-delivery` (0.8), no duplicates, all reach all afterwards, link changes <= `--max-link-changes` per instance and minute |
+| `soak` | `-soak YES` (+ `-soakBlobMB`, `-linkCap`) | after convergence and `resetStats`: `--minutes` of pings with a random instance dark for `--dark-seconds` every `--dark-every` s; all reach all within `--soak-heal-timeout` (120 s) after the last restart (`healedAfterSeconds`); delivery rate >= `--min-delivery` (0.8) without the pings that could not arrive (`soakAdjusted`: missing pings sent while the receiver was dark or within `--restart-grace` (30 s) after a restart of the receiver or the origin; the raw rate is reported too), no duplicates, link changes <= `--max-link-changes` per instance and minute |
 | `blob` | `-block` (forced line rig-0 - rig-1 - …), `-acceptBlobs YES` | `--blob-mb` (10) from one end of the longest path to the other completes; receiver got it; no link change, no lost route, no expired map entry during it |
 
 All of them also require that no instance reports a `Talk` issue.

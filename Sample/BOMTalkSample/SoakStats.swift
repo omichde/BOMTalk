@@ -33,9 +33,20 @@ struct OriginStats: Encodable, Equatable, Sendable {
 
 	/// Numbers older than this behind the highest are forgotten (a duplicate of one counts as new).
 	static let window = 4096
+	/// At most this many missing numbers are reported (the rig excuses those sent while the receiver
+	/// was dark or just restarted).
+	static let maxMissing = 2048
+
+	/// Numbers between the first and the highest seen that never arrived (yet), oldest first, at most
+	/// `maxMissing`, within the window.
+	var missing: [Int] {
+		guard unique > 0 else { return [] }
+		let low = max(firstSeq, lastSeq - Self.window + 1)
+		return Array((low ... lastSeq).lazy.filter { !seen.contains($0) }.prefix(Self.maxMissing))
+	}
 
 	enum CodingKeys: String, CodingKey {
-		case received, unique, duplicates, outOfOrder, gaps, firstSeq, lastSeq, latencyMinMs, latencyAvgMs, latencyMaxMs, lastReceivedAt
+		case received, unique, duplicates, outOfOrder, gaps, missing, firstSeq, lastSeq, latencyMinMs, latencyAvgMs, latencyMaxMs, lastReceivedAt
 	}
 
 	func encode(to encoder: any Encoder) throws {
@@ -45,6 +56,7 @@ struct OriginStats: Encodable, Equatable, Sendable {
 		try c.encode(duplicates, forKey: .duplicates)
 		try c.encode(outOfOrder, forKey: .outOfOrder)
 		try c.encode(gaps, forKey: .gaps)
+		try c.encode(missing, forKey: .missing)
 		try c.encode(firstSeq, forKey: .firstSeq)
 		try c.encode(lastSeq, forKey: .lastSeq)
 		try c.encode(latencyMinMs, forKey: .latencyMinMs)

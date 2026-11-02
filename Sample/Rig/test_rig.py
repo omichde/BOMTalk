@@ -125,6 +125,27 @@ class HelperTests(unittest.TestCase):
         self.assertAlmostEqual(totals["latencyAvgMs"], (20 * 9 + 40 * 10) / 19, places=1)
         self.assertIsNone(rig.soak_totals({})["delivery"])
 
+    def test_dark_and_restart_windows(self):
+        timeline = [(0, True, 1), (2, True, 2), (4, False, 2), (6, False, 2), (8, True, 3), (10, True, 4), (12, False, 4)]
+        self.assertEqual(rig.dark_windows(timeline, 5), [(2, 13), (10, float("inf"))])
+        self.assertEqual(rig.restart_windows(timeline, 5), [(8, 13)])
+        self.assertEqual(rig.send_time(timeline, 2), 8)
+        self.assertEqual(rig.send_time(timeline, 1), 2)
+        self.assertIsNone(rig.send_time(timeline, 9))
+
+    def test_soak_adjusted_excuses_dark_periods(self):
+        # b was dark from 10 to 20; a sent 1 ping per 2 s (seq n at t = 2n); b misses 5…10 and 20
+        timelines = {"a": [(t, True, t // 2 + 1) for t in range(0, 60, 2)],
+                     "b": [(t, not 10 <= t < 20, 1) for t in range(0, 60, 2)]}
+        missing = [5, 6, 7, 8, 9, 10, 20]
+        states = {"b": make_state("b", ["a"], origins={"a": {"unique": 23, "firstSeq": 1, "lastSeq": 30, "missing": missing}})}
+        adjusted = rig.soak_adjusted(states, timelines, grace=4)
+        self.assertEqual(adjusted["excused"], 6)  # seq 20 (t = 40) is not near a dark period
+        self.assertEqual(adjusted["expected"], 24)
+        self.assertEqual(adjusted["delivery"], round(23 / 24, 4))
+        self.assertEqual(rig.soak_adjusted(states, timelines, grace=4)["delivery"], adjusted["delivery"])
+        self.assertIsNone(rig.soak_adjusted({}, {}, 4)["delivery"])
+
     def test_link_changes_and_counters(self):
         events = {"a": [{"type": "neighbour", "t": 100}, {"type": "neighbour", "t": 130}, {"type": "peer", "t": 140}, {"type": "neighbour", "t": 10}],
                   "b": []}
@@ -355,6 +376,7 @@ class FakeWorld:
             unique = len(s["seen"])
             origins[origin] = {"received": s["received"], "unique": unique, "duplicates": s["duplicates"], "outOfOrder": s["outOfOrder"],
                                "gaps": s["last"] - s["first"] + 1 - unique, "firstSeq": s["first"], "lastSeq": s["last"],
+                               "missing": [q for q in range(s["first"], s["last"] + 1) if q not in s["seen"]],
                                "latencyMinMs": min(s["lat"]), "latencyAvgMs": sum(s["lat"]) / len(s["lat"]), "latencyMaxMs": max(s["lat"])}
         edges = self.edges()
         neighbours = sorted(b if a == label else a for a, b in edges if label in (a, b))
@@ -370,7 +392,7 @@ class FakeWorld:
                      "slots": {"regular": len(neighbours), "bridge": 0, "regularCapacity": 1 if node.cap == 2 else 6, "bridgeCapacity": 1},
                      "counters": {"entriesExpired": 0, "stalledDisconnects": 0, "drops": {}},
                      "transfers": [{"id": "t"} for b in self.pending_blobs if label in (b["from"], b["to"])]},
-            "sample": {"soak": {"enabled": node.soak, "origins": origins},
+            "sample": {"soak": {"enabled": node.soak, "nextSeq": node.next_seq, "origins": origins},
                        "transfers": {"sent": node.sent, "sendFailed": node.send_failed, "received": node.received, "receivedBytes": node.received_bytes}},
         }
 
@@ -520,17 +542,30 @@ class ScenarioTests(unittest.TestCase):
         self.assertTrue(result.passed, rig.summary_text([result], ""))
         soak = result.metrics["soak"]
         self.assertGreater(soak["unique"], 100)
-        self.assertGreaterEqual(soak["delivery"], 0.8)
+        self.assertGreaterEqual(result.metrics["soakAdjusted"]["delivery"], 0.8)
         self.assertEqual(soak["duplicates"], 0)
         self.assertTrue(result.metrics["darks"])
         self.assertIn("linkChanges", result.metrics)
+        self.assertIsNotNone(result.metrics["healedAfterSeconds"])
+        self.assertLessEqual(result.metrics["healedAfterSeconds"], 120)
+        adjusted = result.metrics["soakAdjusted"]
+        self.assertGreaterEqual(adjusted["delivery"], soak["delivery"])
+
+    def test_soak_fails_when_it_does_not_heal(self):
+        result, _, _ = self.run_one("soak", n=4, minutes=2, setup=lambda w: setattr(w, "partitioned_forever", True), soak_heal_timeout=30)
+        self.assertFalse(result.passed)
+        failed = [c for c in result.checks if not c.ok]
+        self.assertTrue(any(c.name.startswith("everyone reaches everyone within 30 s") and "partitioned" in c.detail for c in failed))
+        self.assertIsNone(result.metrics["healedAfterSeconds"])
 
     def test_soak_fails_on_duplicates_and_losses(self):
         result, _, _ = self.run_one("soak", n=3, minutes=2, setup=lambda w: setattr(w, "duplicate_pings", True))
         self.assertFalse(result.passed)
         self.assertIn("no duplicates", self.check_names(result, passed=False))
-        result, _, _ = self.run_one("soak", n=3, minutes=2, setup=lambda w: setattr(w, "lose_every", 2))
+        # no darks: nothing to excuse, losses count in full
+        result, _, _ = self.run_one("soak", n=3, minutes=2, setup=lambda w: setattr(w, "lose_every", 2), dark_every=1000, min_delivery=0.9)
         self.assertFalse(result.passed)
+        self.assertEqual(result.metrics["soakAdjusted"]["excused"], 0)
         self.assertTrue(any(c.name.startswith("delivery rate") and not c.ok for c in result.checks))
 
     def test_blob_passes_over_the_longest_path(self):

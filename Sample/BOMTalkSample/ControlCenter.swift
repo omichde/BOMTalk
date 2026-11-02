@@ -312,10 +312,10 @@ final class ControlCenter {
 
 		let neighbours = Set(snapshot.neighbours.map(\.id))
 		for device in snapshot.neighbours where !seenNeighbours.contains(device.id) {
-			log("neighbour", ["id": device.id.uuidString, "name": device.name, "up": true])
+			log("neighbour", ["id": device.id.uuidString, "name": device.name, "linked": true])	// not "up": the uptime field
 		}
 		for id in seenNeighbours.subtracting(neighbours) {
-			log("neighbour", ["id": id.uuidString, "name": nameInLastSnapshot(id), "up": false])
+			log("neighbour", ["id": id.uuidString, "name": nameInLastSnapshot(id), "linked": false])
 		}
 		seenNeighbours = neighbours
 
