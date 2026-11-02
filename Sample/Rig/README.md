@@ -50,7 +50,16 @@ Every scenario relaunches all instances with its own arguments and run id `<id>-
 | `soak` | `-soak YES` (+ `-soakBlobMB`, `-linkCap`) | after convergence and `resetStats`: `--minutes` of pings with a random instance dark for `--dark-seconds` every `--dark-every` s; all reach all within `--soak-heal-timeout` (120 s) after the last restart (`healedAfterSeconds`); delivery rate >= `--min-delivery` (0.8) without the pings that could not arrive (`soakAdjusted`: missing pings sent while the receiver was dark or within `--restart-grace` (30 s) after a restart of the receiver or the origin; the raw rate is reported too), no duplicates, link changes <= `--max-link-changes` per instance and minute |
 | `blob` | `-block` (forced line rig-0 - rig-1 - …), `-acceptBlobs YES` | `--blob-mb` (10) from one end of the longest path to the other completes; receiver got it; no link change, no lost route, no expired map entry during it |
 
-All of them also require that no instance reports a `Talk` issue.
+All of them also require that no instance reports a `Talk` issue. The soak also requires that no
+instance leaves state polls unanswered (no answer or "busy") for more than `--max-silence` (60 s), and
+reports `longestSilenceSeconds`, `busyReplies`, `unansweredCommands` and `mainLag` (per instance:
+max / avg main actor lag, samples over 250 ms and 1 s, since `resetStats`).
+
+Commands are retried: each attempt waits `COMMAND_TIMEOUT` (15 s; `ping`, `chat` 60 s), up to 3
+attempts with the same request id, so the app runs a command once even if an earlier attempt only
+timed out. Without any answer the scenario aborts, except for `dark`, `resetStats` and `soak` in the
+soak and heal scenarios: their outcome is then unknown (`darks[].unanswered`, `darkUnanswered`) and
+the scenario's own checks judge what happened.
 
 ## Output
 
@@ -78,7 +87,18 @@ curl -s -X POST localhost:8100/command -d '{"cmd":"blob","to":"rig-2","mb":10}'
 eventLog path, …), `talk` (the package's `debugSnapshot()`: neighbours, routes, link map, relay
 counters, slots, link actions, transfers), `sample` (soak stats per origin, blob counters).
 
-`POST /command` with `{"cmd": …}`; the reply is `{"ok":true,…}` or `{"ok":false,"error":…}`:
+`app.mainLag` (`samples`, `lastMs`, `avgMs`, `maxMs`, `over250ms`, `over1s`): how late a 0.5 s main
+actor timer fired, since launch or `resetStats`. If the main actor does not get to a `GET /state`
+within 3 s, the server answers 503 `{"ok":false,"busy":true,"mainSilentMs":…}` itself.
+
+Event log entries of the probe: `main.lag` every 10 s (window max / avg), `main.lag.spike` for a
+single delay of 1 s or more, and `main.stall` written from a background queue while the main actor
+has not run the probe for 2 s or more (every 10 s while it lasts: a frozen main actor shows up as it
+happens; a suspended app writes nothing). `radio.reset` when the link layer reset a wedged radio.
+
+`POST /command` with `{"cmd": …}` (optionally `"requestID"`: a retry with the same id gets the first
+reply, or `{"ok":true,"inProgress":true}` while it runs); the reply is `{"ok":true,…}` or
+`{"ok":false,"error":…}`:
 
 | cmd | arguments | |
 |---|---|---|
@@ -91,7 +111,7 @@ counters, slots, link actions, transfers), `sample` (soak stats per origin, blob
 | `dark` | `seconds` | `Talk` stops now, starts again after that long |
 | `stop`, `start` | | |
 | `soak` | `on` | pings every 3 s |
-| `resetStats` | | clear soak stats |
+| `resetStats` | | clear soak stats and main actor lag |
 
 Bad requests get 400, unknown paths 404, wrong methods 405.
 

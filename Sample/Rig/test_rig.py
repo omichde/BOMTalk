@@ -183,7 +183,11 @@ class HelperTests(unittest.TestCase):
             def log_message(self, *args):
                 pass
 
+            busy = False
+
             def do_GET(self):
+                if Handler.busy:
+                    return self._reply(503, {"ok": False, "busy": True, "mainSilentMs": 3200})
                 self._reply(200, {"app": {"label": "x"}})
 
             def do_POST(self):
@@ -205,10 +209,53 @@ class HelperTests(unittest.TestCase):
             self.assertTrue(instance.command("ping")["ok"])
             with self.assertRaises(rig.RigError):
                 instance.command("bad")
+            Handler.busy = True
+            self.assertIsNone(instance.state())
+            self.assertEqual(instance.busy_replies, 1)
+            with self.assertRaises(rig.InstanceBusy):
+                instance.api.state()
         finally:
             server.shutdown()
             server.server_close()
         self.assertIsNone(rig.Instance("y", "sim", 1, rig.HttpApi(1)).state())  # nothing listens
+
+    def test_command_retries_with_one_request_id(self):
+        class Flaky:
+            def __init__(self, failures):
+                self.failures, self.calls = failures, []
+
+            def command(self, cmd, timeout=30.0, **args):
+                self.calls.append((cmd, timeout, args["requestID"]))
+                if len(self.calls) <= self.failures:
+                    raise TimeoutError("timed out")
+                return {"ok": True}
+
+        pauses = []
+        api = Flaky(failures=2)
+        instance = rig.Instance("x", "sim", 1, api, sleep=pauses.append)
+        self.assertTrue(instance.command("dark", seconds=5)["ok"])
+        self.assertEqual(len(api.calls), 3)
+        self.assertEqual(len({call[2] for call in api.calls}), 1)  # one request id: the app runs it once
+        self.assertEqual(pauses, [rig.COMMAND_RETRY_PAUSE, 2 * rig.COMMAND_RETRY_PAUSE])
+        self.assertEqual(api.calls[0][1], rig.COMMAND_TIMEOUT)
+        # never answered: unknown unless required
+        api = Flaky(failures=99)
+        instance = rig.Instance("x", "sim", 1, api, sleep=lambda _: None)
+        self.assertTrue(instance.command("dark", required=False, seconds=5)["unknown"])
+        with self.assertRaises(rig.RigError):
+            instance.command("dark", seconds=5)
+        self.assertEqual(instance.unanswered, ["dark", "dark"])
+        self.assertEqual(rig.command_timeout("ping", {}), rig.COMMAND_TIMEOUTS["ping"])
+        self.assertEqual(rig.command_timeout("blob", {"wait": True}), 600.0)
+
+    def test_main_lag(self):
+        a = make_state("a", ["b"])
+        a["app"]["mainLag"] = {"maxMs": 1200.0, "avgMs": 8.5, "over250ms": 3, "over1s": 1, "samples": 400, "lastMs": 2.0}
+        lag = rig.main_lag({"a": a, "b": make_state("b", ["a"]), "c": None})
+        self.assertEqual(lag["worstMaxMs"], 1200.0)
+        self.assertEqual(lag["perInstance"], {"a": {"maxMs": 1200.0, "avgMs": 8.5, "over250ms": 3, "over1s": 1, "samples": 400}})
+        self.assertIsNone(rig.main_lag({})["worstMaxMs"])
+        self.assertEqual(rig.summarize_state(a)["mainLagMaxMs"], 1200.0)
 
 
 # --------------------------------------------------------------------------------------------
@@ -265,6 +312,7 @@ class FakeWorld:
         self.blob_disconnects = False
         self.blob_fails = False
         self.lose_every = 0  # drop every n-th ping per receiver
+        self.frozen = {}  # label -> from when it answers nothing at all (state and commands time out)
         self.pending_blobs = []
         self.ticks = 0
 
@@ -368,6 +416,8 @@ class FakeWorld:
 
     def state(self, label):
         node = self.nodes[label]
+        if label in self.frozen and self.t >= self.frozen[label]:
+            raise TimeoutError("timed out")
         if node.launched_at is None or self.t < node.launched_at + 2.0:
             raise OSError("connection refused")
         routes = self.routes(label)
@@ -385,7 +435,8 @@ class FakeWorld:
             routes = {}
         return {
             "app": {"label": label, "runID": node.run_id, "isRunning": not node.is_dark(self.t), "wantsRunning": True, "pid": 4000 + node.index,
-                    "uptime": self.t - node.launched_at, "darkSecondsLeft": None},
+                    "uptime": self.t - node.launched_at, "darkSecondsLeft": None,
+                    "mainLag": {"samples": 100, "lastMs": 1.0, "avgMs": 2.0, "maxMs": 40.0 + node.index, "over250ms": 0, "over1s": 0}},
             "talk": {"me": {"id": node.id, "name": label}, "isRunning": not node.is_dark(self.t),
                      "reachable": [{"id": self.nodes[o].id, "name": o, "hops": h, "nextHop": self.nodes[nh].id} for o, (h, nh) in sorted(routes.items())],
                      "neighbours": [{"id": self.nodes[n].id, "name": n} for n in neighbours],
@@ -398,6 +449,8 @@ class FakeWorld:
 
     def command(self, label, cmd, args):
         node = self.nodes[label]
+        if label in self.frozen and self.t >= self.frozen[label]:
+            raise TimeoutError("timed out")
         if cmd == "dark":
             node.dark.append((self.t, self.t + args["seconds"]))
         elif cmd == "resetStats":
@@ -550,6 +603,25 @@ class ScenarioTests(unittest.TestCase):
         self.assertLessEqual(result.metrics["healedAfterSeconds"], 120)
         adjusted = result.metrics["soakAdjusted"]
         self.assertGreaterEqual(adjusted["delivery"], soak["delivery"])
+
+    def test_soak_reports_main_lag(self):
+        result, _, _ = self.run_one("soak", n=3, minutes=2)
+        self.assertTrue(result.passed, rig.summary_text([result], ""))
+        self.assertEqual(result.metrics["mainLag"]["worstMaxMs"], 42.0)
+        self.assertEqual(result.metrics["longestSilenceSeconds"], {})
+        self.assertEqual(result.metrics["unansweredCommands"], {})
+
+    def test_soak_survives_a_frozen_instance(self):
+        # rig-1 stops answering for good after 60 s: the run goes on, darks for it stay unknown, and
+        # the soak fails on its silence instead of aborting
+        def setup(world):
+            world.frozen["rig-1"] = 60.0
+        result, _, _ = self.run_one("soak", n=3, minutes=3, setup=setup, dark_every=30, seed=3)
+        self.assertIsNone(result.error)
+        self.assertFalse(result.passed)
+        self.assertIn("every instance answers again within 60 s", self.check_names(result, passed=False))
+        self.assertGreater(result.metrics["longestSilenceSeconds"]["rig-1"], 60)
+        self.assertIn("rig-1", result.metrics["unansweredCommands"])
 
     def test_soak_fails_when_it_does_not_heal(self):
         result, _, _ = self.run_one("soak", n=4, minutes=2, setup=lambda w: setattr(w, "partitioned_forever", True), soak_heal_timeout=30)

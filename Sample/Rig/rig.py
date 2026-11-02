@@ -26,6 +26,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -42,6 +43,12 @@ PLANS = {
     "blob": "forced line via -block; --blob-mb across the longest path; completes, no disconnects, no expired entries",
 }
 REPO = Path(__file__).resolve().parents[2]
+# commands: answer timeout (s) by command, default otherwise; attempts with the same request id (the
+# app runs a command once and answers retries from its cache); pause before the n-th retry (n × s)
+COMMAND_TIMEOUTS = {"ping": 60.0, "chat": 60.0}
+COMMAND_TIMEOUT = 15.0
+COMMAND_ATTEMPTS = 3
+COMMAND_RETRY_PAUSE = 2.0
 
 
 class RigError(Exception):
@@ -187,7 +194,26 @@ def summarize_state(state: Optional[dict]) -> dict:
         "soak": {"sent": soak.get("sent"), "nextSeq": soak.get("nextSeq"),
                  "received": {o: s.get("unique") for o, s in soak.get("origins", {}).items()}},
         "blobs": {k: v for k, v in sample.get("transfers", {}).items() if k != "recent"},
+        "mainLagMaxMs": (app.get("mainLag") or {}).get("maxMs"),
     }
+
+
+def main_lag(states: dict[str, Optional[dict]]) -> dict:
+    """Main actor lag per instance (`app.mainLag` of the app's state) and the worst over all."""
+    per = {}
+    for label, state in sorted(states.items()):
+        lag = (state or {}).get("app", {}).get("mainLag")
+        if lag:
+            per[label] = {k: lag.get(k) for k in ("maxMs", "avgMs", "over250ms", "over1s", "samples")}
+    worst = max((v["maxMs"] or 0 for v in per.values()), default=None)
+    return {"perInstance": per, "worstMaxMs": worst}
+
+
+def command_timeout(cmd: str, args: dict) -> float:
+    """How long to wait for the answer to one command attempt."""
+    if cmd == "blob" and args.get("wait"):
+        return 600.0
+    return COMMAND_TIMEOUTS.get(cmd, COMMAND_TIMEOUT)
 
 
 def best_relay(states: dict[str, Optional[dict]], labels: list[str]) -> Optional[str]:
@@ -389,6 +415,14 @@ def summary_text(results: list[ScenarioResult], header: str) -> str:
 # --------------------------------------------------------------------------------------------
 # talking to the instances
 
+class InstanceBusy(OSError):
+    """The app answered, but its main actor did not get to the request in time (HTTP 503 busy)."""
+
+    def __init__(self, silent_ms: Optional[float]):
+        super().__init__(f"main actor busy ({silent_ms} ms silent)")
+        self.silent_ms = silent_ms
+
+
 class HttpApi:
     """One instance's control layer."""
 
@@ -396,8 +430,19 @@ class HttpApi:
         self.base = f"http://{host}:{port}"
 
     def state(self, timeout: float = 5.0) -> dict:
-        with urllib.request.urlopen(self.base + "/state", timeout=timeout) as response:
-            return json.load(response)
+        try:
+            with urllib.request.urlopen(self.base + "/state", timeout=timeout) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            try:
+                body = json.load(error) if error.code == 503 else {}
+            except ValueError:
+                body = {}
+            finally:
+                error.close()
+            if body.get("busy"):
+                raise InstanceBusy(body.get("mainSilentMs"))
+            raise
 
     def command(self, cmd: str, timeout: float = 30.0, **args: Any) -> dict:
         request = urllib.request.Request(self.base + "/command", data=json.dumps({"cmd": cmd, **args}).encode(),
@@ -424,22 +469,42 @@ class Instance:
     pid: Optional[int] = None
     event_log: Optional[str] = None  # path reported by the app
     launcher: Optional[subprocess.Popen] = None
+    sleep: Callable[[float], None] = time.sleep
+    busy_replies: int = 0  # state polls answered with "main actor busy"
+    unanswered: list = dataclasses.field(default_factory=list)  # commands without any answer
 
     def state(self) -> Optional[dict]:
-        """The state, None if the instance does not answer."""
+        """The state, None if the instance does not answer (or only says it is busy)."""
         try:
             return self.api.state()
+        except InstanceBusy:
+            self.busy_replies += 1
+            return None
         except (OSError, ValueError):
             return None
 
-    def command(self, cmd: str, **args: Any) -> dict:
-        try:
-            reply = self.api.command(cmd, **args)
-        except (OSError, ValueError) as error:
-            raise RigError(f"{self.label}: command {cmd} failed: {error}")
-        if not reply.get("ok"):
-            raise RigError(f"{self.label}: command {cmd} refused: {reply.get('error')}")
-        return reply
+    def command(self, cmd: str, required: bool = True, **args: Any) -> dict:
+        """Sends a command, retried with the same request id while there is no answer. A refusal
+        raises; no answer at all raises only if `required`, otherwise the outcome is unknown
+        (`{"ok": None, "unknown": True}`): a busy app may still run it."""
+        request_id = uuid.uuid4().hex
+        timeout = command_timeout(cmd, args)
+        error: Optional[Exception] = None
+        for attempt in range(COMMAND_ATTEMPTS):
+            if attempt:
+                self.sleep(COMMAND_RETRY_PAUSE * attempt)
+            try:
+                reply = self.api.command(cmd, timeout=timeout, requestID=request_id, **args)
+            except (OSError, ValueError) as caught:
+                error = caught
+                continue
+            if not reply.get("ok"):
+                raise RigError(f"{self.label}: command {cmd} refused: {reply.get('error')}")
+            return reply
+        self.unanswered.append(cmd)
+        if required:
+            raise RigError(f"{self.label}: command {cmd} failed: {error} ({COMMAND_ATTEMPTS} attempts)")
+        return {"ok": None, "unknown": True, "error": str(error)}
 
 
 # --------------------------------------------------------------------------------------------
@@ -504,6 +569,9 @@ class Rig:
         self.mac_pids: dict[str, int] = {}
         # per instance, every poll: (time, running, soak nextSeq)
         self.timelines: dict[str, list[tuple[float, Optional[bool], Optional[int]]]] = {}
+        # per instance: since when it has not answered (None while it answers), longest silence so far
+        self.silent_since: dict[str, Optional[float]] = {}
+        self.longest_silence: dict[str, float] = {}
 
     # ---- setup ----
 
@@ -511,6 +579,8 @@ class Rig:
         n, m = self.opts.instances, self.opts.macos
         self.instances = [Instance(f"rig-{i}", "sim", PORT_BASE + i, self.api_factory(PORT_BASE + i)) for i in range(n)]
         self.instances += [Instance(f"mac-{j}", "mac", PORT_BASE + n + j, self.api_factory(PORT_BASE + n + j)) for j in range(m)]
+        for inst in self.instances:
+            inst.sleep = self.clock.sleep
         self.labels = [i.label for i in self.instances]
 
     def prepare_simulators(self) -> None:
@@ -637,6 +707,13 @@ class Rig:
         result = dict(zip(self.labels, states))
         now = self.clock.now()
         for label, state in result.items():
+            since = self.silent_since.get(label)
+            if state is None:
+                since = now if since is None else since
+                self.longest_silence[label] = max(self.longest_silence.get(label, 0.0), now - since)
+            else:
+                since = None
+            self.silent_since[label] = since
             if state is not None:
                 soak = state.get("sample", {}).get("soak", {})
                 self.timelines.setdefault(label, []).append((now, state.get("app", {}).get("isRunning"), soak.get("nextSeq")))
@@ -746,7 +823,8 @@ class Rig:
         others = [l for l in self.labels if l != victim]
         dark = self.opts.dark_seconds
         result.metrics["victim"] = victim
-        self.instance(victim).command("dark", seconds=dark)
+        if self.instance(victim).command("dark", required=False, seconds=dark).get("unknown"):
+            result.metrics["darkUnanswered"] = True  # the checks below tell whether it went dark
         started = self.clock.now()
         lost_at: dict[str, float] = {}
         min_reach = {l: len(self.labels) - 1 for l in others}
@@ -776,10 +854,11 @@ class Rig:
         if self.converge(result, self.opts.converge_timeout, "initial convergence") is None:
             return
         for inst in self.instances:
-            inst.command("resetStats")
+            inst.command("resetStats", required=False)
         before = self.poll()
         self.soak_since = self.clock.wall()
         self.timelines = {}
+        self.silent_since, self.longest_silence = {}, {}
         minutes = self.opts.minutes
         start = self.clock.now()
         end = start + minutes * 60
@@ -791,8 +870,9 @@ class Rig:
             if self.clock.now() >= next_dark and self.clock.now() + self.opts.dark_seconds < end:
                 choices = [l for l in self.labels if l != last] or self.labels
                 last = self.rng.choice(choices)
-                self.instance(last).command("dark", seconds=self.opts.dark_seconds)
-                darks.append({"label": last, "at": round(self.clock.now() - start, 1)})
+                at = round(self.clock.now() - start, 1)
+                reply = self.instance(last).command("dark", required=False, seconds=self.opts.dark_seconds)
+                darks.append({"label": last, "at": at, **({"unanswered": True} if reply.get("unknown") else {})})
                 last_restart = self.clock.now() + self.opts.dark_seconds
                 next_dark += self.opts.dark_every
             self.clock.sleep(self.opts.poll)
@@ -817,9 +897,16 @@ class Rig:
         result.check(f"everyone reaches everyone within {self.opts.soak_heal_timeout:.0f} s after the last restart", ok,
                      f"after {seconds:.0f} s" if ok else f"partitioned: {json.dumps(missing, sort_keys=True)}")
         for inst in self.instances:
-            inst.command("soak", on=False)
+            inst.command("soak", required=False, on=False)
         self.clock.sleep(self.opts.settle_seconds)
         after = self.poll()
+        silence = {l: round(s, 1) for l, s in sorted(self.longest_silence.items()) if s > 0}
+        result.metrics["longestSilenceSeconds"] = silence
+        result.metrics["busyReplies"] = {i.label: i.busy_replies for i in self.instances if i.busy_replies}
+        result.metrics["unansweredCommands"] = {i.label: i.unanswered for i in self.instances if i.unanswered}
+        result.metrics["mainLag"] = main_lag(after)
+        too_long = {l: s for l, s in silence.items() if s > self.opts.max_silence}
+        result.check(f"every instance answers again within {self.opts.max_silence:.0f} s", not too_long, json.dumps(too_long, sort_keys=True))
         totals = soak_totals(after)
         result.metrics["soak"] = totals
         adjusted = soak_adjusted(after, self.timelines, self.opts.restart_grace)
@@ -1007,6 +1094,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--restart-grace", type=float, default=30.0, help="soak: pings to or from an instance within this many s after its restart are excused")
     p.add_argument("--soak-heal-timeout", type=float, default=120.0, help="soak: all must reach all within this many s after the last restart")
     p.add_argument("--max-link-changes", type=float, default=10.0, help="soak: maximum link changes per instance and minute")
+    p.add_argument("--max-silence", type=float, default=60.0, help="soak: longest an instance may leave state polls unanswered (busy or no answer)")
     p.add_argument("--blob-mb", type=int, default=10)
     p.add_argument("--blob-timeout", type=float, default=300.0)
     args = p.parse_args(argv)
