@@ -13,6 +13,11 @@ import MultipeerConnectivity
 /// One device may appear with several handles (rename, relaunch): `advertised` is the latest one seen
 /// by the browser and used for inviting, `session` the one the session link belongs to. Callbacks for
 /// other handles are ignored, so an outdated handle can neither hide nor drop a peer.
+///
+/// Admission: without a `LinkPolicy` first come, first served up to `maxPeers`. With one (set by the
+/// relay), `maxPeers` splits into regular and bridge slots (`LinkSlots`), counted over all pending
+/// and connected peers: a regular slot for anyone not suppressed, beyond that the bridge slot only
+/// for a bridge candidate. The same rule decides inviting and accepting.
 struct MPCPeerMachine<Handle: Hashable> {
 
 	enum Action {
@@ -48,6 +53,8 @@ struct MPCPeerMachine<Handle: Hashable> {
 
 	let localID: UUID
 	let maxPeers: Int
+	/// Nil: no split, everyone first come, first served.
+	private(set) var policy: LinkPolicy?
 	private var peers: [UUID: Record] = [:]
 	private var actions: [Action] = []
 	private var lastToken = 0
@@ -57,7 +64,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 		self.maxPeers = maxPeers
 	}
 
-	/// Forgets all peers; pending timers become outdated.
+	/// Forgets all peers (the policy stays); pending timers become outdated.
 	mutating func reset() {
 		peers = [:]
 	}
@@ -100,7 +107,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 		if record.state == .connecting, record.invited, MPCPolicy.invitesFirst(local: localID, remote: id) {
 			return (false, [])	// simultaneous invitations: the remote accepts ours
 		}
-		guard hasCapacity(excluding: id) else { return (false, []) }
+		guard admits(id) else { return (false, []) }
 		if let old = record.session, old != handle {
 			actions.append(.cancel(old))
 		}
@@ -146,6 +153,25 @@ struct MPCPeerMachine<Handle: Hashable> {
 		guard let id = sessionID(handle) else { return [] }
 		connect(id)	// data proves the link is up, even if the state callback is still queued
 		emit(.received(data, from: id))
+		return take()
+	}
+
+	/// Sets or replaces the link policy; waiting peers get another chance, bridge candidates first.
+	mutating func setPolicy(_ policy: LinkPolicy) -> [Action] {
+		guard policy != self.policy else { return [] }
+		self.policy = policy
+		fillSlots()
+		return take()
+	}
+
+	/// Drops a pending or connected link on purpose; bookkeeping as for a dropped link (backoff,
+	/// reconnect unless the policy suppresses the peer).
+	mutating func disconnect(_ id: UUID) -> [Action] {
+		guard let record = peers[id], record.state != .idle else { return [] }
+		if let session = record.session {
+			actions.append(.cancel(session))
+		}
+		fail(id)
 		return take()
 	}
 
@@ -199,7 +225,7 @@ struct MPCPeerMachine<Handle: Hashable> {
 
 	/// Invites a visible idle peer now or after tie-break / backoff delay.
 	private mutating func scheduleConnect(_ id: UUID) {
-		guard let record = peers[id], record.isVisible, record.state == .idle, record.timer == nil else { return }
+		guard let record = peers[id], record.isVisible, record.state == .idle, record.timer == nil, wantsToInvite(id) else { return }
 		let delay = MPCPolicy.delay(failures: record.failures, invitesFirst: MPCPolicy.invitesFirst(local: localID, remote: id))
 		guard delay > .zero else { return invite(id) }
 		let token = startTimer(id, after: delay)
@@ -208,8 +234,8 @@ struct MPCPeerMachine<Handle: Hashable> {
 
 	private mutating func invite(_ id: UUID) {
 		guard var record = peers[id], let handle = record.advertised, record.state == .idle else { return }
-		guard hasCapacity(excluding: id) else {
-			return	// retried by `fillSlots` once a slot frees up
+		guard wantsToInvite(id), admits(id) else {
+			return	// retried by `fillSlots` once a slot frees up or the policy changes
 		}
 		record.state = .connecting
 		record.session = handle
@@ -220,18 +246,36 @@ struct MPCPeerMachine<Handle: Hashable> {
 		actions.append(.invite(handle))
 	}
 
-	/// After a slot freed up: try all visible idle peers again.
+	/// After a slot freed up or the policy changed: try all visible idle peers again, bridge
+	/// candidates first.
 	private mutating func fillSlots() {
-		let waiting = peers.values.filter { $0.isVisible && $0.state == .idle && $0.timer == nil }
-		for id in waiting.map(\.id).sorted(by: { $0.uuidString < $1.uuidString }) {
+		let candidates = policy?.bridgeCandidates ?? []
+		let waiting = peers.values.filter { $0.isVisible && $0.state == .idle && $0.timer == nil }.map(\.id)
+		let rank = { (id: UUID) in (candidates.contains(id) ? 0 : 1, id.uuidString) }
+		for id in waiting.sorted(by: { rank($0) < rank($1) }) {
 			scheduleConnect(id)
 		}
 	}
 
 	// MARK: - Helpers
 
-	private func hasCapacity(excluding id: UUID) -> Bool {
-		peers.values.count { $0.id != id && $0.state != .idle } < maxPeers
+	/// Whether a link with the peer fits: a free regular slot (not for suppressed peers), or the
+	/// bridge slot for a bridge candidate. Without a policy simply the cap.
+	private func admits(_ id: UUID) -> Bool {
+		let used = peers.values.count { $0.id != id && $0.state != .idle }
+		guard let policy else { return used < maxPeers }
+		guard !policy.suppressed.contains(id) else { return false }
+		let slots = LinkSlots(maxPeers: maxPeers)
+		return used < slots.regular || (used < slots.total && policy.bridgeCandidates.contains(id))
+	}
+
+	/// Suppressed peers and full ones (they would decline) are not invited; bridge candidates are.
+	private func wantsToInvite(_ id: UUID) -> Bool {
+		guard let policy else { return true }
+		if policy.bridgeCandidates.contains(id) {
+			return true
+		}
+		return !policy.suppressed.contains(id) && !policy.full.contains(id)
 	}
 
 	private func sessionID(_ handle: Handle) -> UUID? {

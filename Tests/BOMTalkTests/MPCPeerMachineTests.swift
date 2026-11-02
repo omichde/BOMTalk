@@ -50,6 +50,14 @@ import Testing
 			render(machine.sessionChanged(handle, to: state))
 		}
 
+		func policy(candidates: Set<UUID> = [], suppressed: Set<UUID> = [], full: Set<UUID> = []) -> [String] {
+			render(machine.setPolicy(LinkPolicy(bridgeCandidates: candidates, suppressed: suppressed, full: full)))
+		}
+
+		func disconnect(_ id: UUID) -> [String] {
+			render(machine.disconnect(id))
+		}
+
 		func fire(_ id: UUID) -> [String] {
 			render(machine.timerFired(id, token: timers[id]!))
 		}
@@ -167,5 +175,51 @@ import Testing
 		#expect(s.fire(Self.a) == [])	// full again
 		#expect(s.state("d1", .notConnected) == ["disconnected D", "timer D 1s", "timer A 1s"])	// slot free, A still backs off
 		#expect(s.fire(Self.a) == ["timer A 40s", "connecting A", "invite a1"])
+	}
+
+	// MARK: - Link policy
+
+	/// Cap 2 under a policy: 1 regular + 1 bridge slot; the bridge slot only for candidates, inviting
+	/// and accepting alike.
+	@Test func bridgeSlot() {
+		#expect(LinkSlots(maxPeers: 7).regular == 6 && LinkSlots(maxPeers: 7).bridge == 1)
+		#expect(LinkSlots(maxPeers: 2).regular == 1 && LinkSlots(maxPeers: 2).bridge == 1)
+		#expect(LinkSlots(maxPeers: 1).regular == 1 && LinkSlots(maxPeers: 1).bridge == 0)
+		let s = Script(maxPeers: 2)
+		#expect(s.policy() == [])
+		_ = s.found("a1", Self.a)
+		_ = s.state("a1", .connected)
+		#expect(s.found("d1", Self.d) == ["found D D"])	// regular slot taken, D no candidate
+		#expect(s.invitation("c1", Self.c) == ["decline"])
+		#expect(s.policy(candidates: [Self.c, Self.d]) == ["timer D 40s", "connecting D", "invite d1"])
+		#expect(s.invitation("c1", Self.c) == ["decline"])	// all slots taken
+		_ = s.state("d1", .connected)
+		#expect(s.state("a1", .notConnected) == ["disconnected A", "timer A 1s"])
+		#expect(s.invitation("c1", Self.c) == ["accept", "connecting C", "timer C 40s"])	// regular slot
+	}
+
+	@Test func suppressedAndFull() {
+		let s = Script()
+		_ = s.policy(suppressed: [Self.a], full: [Self.d])
+		#expect(s.found("a1", Self.a) == ["found A A"])
+		#expect(s.found("d1", Self.d) == ["found D D"])	// would decline: not invited
+		#expect(s.invitation("a1", Self.a) == ["decline"])
+		#expect(s.invitation("d1", Self.d) == ["accept", "connecting D", "timer D 40s"])
+		#expect(s.policy() == ["timer A 40s", "connecting A", "invite a1"])
+	}
+
+	@Test func deliberateDisconnect() {
+		let s = Script()
+		_ = s.policy()
+		_ = s.found("a1", Self.a)
+		_ = s.state("a1", .connected)
+		#expect(s.policy(suppressed: [Self.a]) == [])
+		#expect(s.disconnect(Self.a) == ["cancel a1", "disconnected A"])	// suppressed: no reconnect
+		#expect(s.disconnect(Self.a) == [])
+		#expect(s.state("a1", .notConnected) == [])
+		#expect(s.policy() == ["timer A 1s"])	// backoff counts the drop
+		_ = s.found("b1", Self.b)
+		_ = s.fire(Self.b)
+		#expect(s.disconnect(Self.b) == ["cancel b1", "disconnected B", "timer B 6s"])	// pending link, backoff + fallback
 	}
 }

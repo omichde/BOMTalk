@@ -12,8 +12,10 @@ import os
 /// Radio-agnostic: the per-peer state machine lives in `MPCPeerMachine`, all MultipeerConnectivity
 /// objects in the radio (`MPCRadio` in production, see `MPCTransport`). Timers are injected, so the
 /// whole stack runs on virtual time in tests.
+///
+/// `LinkControl` lets the relay above steer admission (`LinkPolicy`) and drop single links.
 @MainActor
-final class LinkTransport<Radio: LinkRadio>: Transport {
+final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl {
 
 	var onEvent: (@MainActor (TransportEvent) -> Void)?
 	private(set) var localPeer: TransportPeer
@@ -29,6 +31,9 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 	private var isRunning = false
 	private var machine: MPCPeerMachine<Radio.Handle>
 	private var advertiserRestart: TimerToken?
+	/// Machine actions not performed yet, in order; see `perform(_:)`.
+	private var queue: [MPCPeerMachine<Radio.Handle>.Action] = []
+	private var isPerforming = false
 
 	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers, generation: Int = RelayPolicy.generation) {
 		self.radio = radio
@@ -60,6 +65,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 		advertiserRestart = nil
 		radio.stop()
 		machine.reset()
+		queue = []
 	}
 
 	/// Restarts the advertiser at most once per `advertiserRestartDelay`, with the latest info.
@@ -81,6 +87,21 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 		} catch {
 			throw .sendFailed(error.localizedDescription)
 		}
+	}
+
+	// MARK: - LinkControl
+
+	var linkCap: Int { machine.maxPeers }
+
+	func setLinkPolicy(_ policy: LinkPolicy) {
+		let actions = machine.setPolicy(policy)
+		guard isRunning else { return }
+		perform(actions)
+	}
+
+	func disconnect(_ id: UUID) {
+		guard isRunning else { return }
+		perform(machine.disconnect(id))
 	}
 
 	// MARK: - Radio callbacks (on main, in arrival order)
@@ -126,9 +147,20 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 
 	// MARK: - Actions
 
+	/// Performs actions in the order the machine produced them. Actions of a machine call made from
+	/// within `onEvent` (`LinkControl`) are queued behind the ones still pending, so the layer above
+	/// never sees events of a nested call before the rest of the current one.
 	private func perform(_ actions: [MPCPeerMachine<Radio.Handle>.Action]) {
-		for action in actions {
-			guard isRunning else { return }	// stopped from within `onEvent`
+		queue += actions
+		guard !isPerforming else { return }
+		isPerforming = true
+		defer { isPerforming = false }
+		while !queue.isEmpty {
+			let action = queue.removeFirst()
+			guard isRunning else {	// stopped from within `onEvent`
+				queue = []
+				return
+			}
 			switch action {
 			case let .emit(event):
 				onEvent?(event)

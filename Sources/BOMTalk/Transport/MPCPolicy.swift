@@ -88,11 +88,30 @@ struct InvitationContext: Codable, Equatable {
 	}
 }
 
+/// How a peer cap splits under the relay's link policy (6 + 1, see `LinkPolicy`).
+struct LinkSlots: Sendable, Equatable {
+	/// First come, first served; never for a suppressed device.
+	let regular: Int
+	/// Only for bridge candidates (visible but unreachable devices).
+	let bridge: Int
+
+	/// `MPCPolicy.bridgeSlots` bridge slots, the rest regular, but at least one regular slot:
+	/// 7 → 6 + 1, 2 → 1 + 1, 1 → 1 + 0.
+	init(maxPeers: Int) {
+		bridge = min(MPCPolicy.bridgeSlots, max(0, maxPeers - 1))
+		regular = max(0, maxPeers - bridge)
+	}
+
+	var total: Int { regular + bridge }
+}
+
 /// Connection rules: peer cap, tie-break, reconnect backoff, error mapping.
 enum MPCPolicy {
 
 	/// 8 peers per `MCSession` in total, including this device.
 	static let maxRemotePeers = 7
+	/// Of the peer cap, reserved for bridges between partitions while a link policy is set.
+	static let bridgeSlots = 1
 	static let inviteTimeout: TimeInterval = 30
 	/// A peer stuck in connecting this long is cancelled and counts as failed attempt.
 	static let watchdogDelay: Duration = .seconds(inviteTimeout + 10)
