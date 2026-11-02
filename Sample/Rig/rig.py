@@ -101,6 +101,16 @@ def pick_device_type(runtime: dict, wanted: Optional[str] = None) -> dict:
     return (iphones or types)[0]
 
 
+def app_pid_from_launchctl(listing: str, bundle_id: str) -> Optional[int]:
+    """PID of a running app in `launchctl list` output of a simulator (`PID  Status  Label`, the label
+    `UIKitApplication:<bundle id>[…]`); None if it is not listed or not running (`-`)."""
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[2].startswith(f"UIKitApplication:{bundle_id}[") and fields[0].isdigit():
+            return int(fields[0])
+    return None
+
+
 def launch_arguments(label: str, port: int, run_id: str, extra: list[str], ephemeral: bool = False) -> list[str]:
     """App arguments after the bundle identifier / `--args`."""
     args = ["-autostart", "YES", "-controlPort", str(port), "-label", label, "-runID", run_id,
@@ -530,6 +540,30 @@ class Runner:
             raise RigError(f"{' '.join(cmd)} failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}")
         return result
 
+    def run_bounded(self, cmd: list[str], timeout: float, quiet: bool = False) -> Optional[subprocess.CompletedProcess]:
+        """Never raises and never waits much longer than `timeout`: None if the command did not finish in
+        time (it is killed, and reaped for at most a few seconds) or could not start."""
+        if not quiet:
+            self.log("$ " + shlex.join(cmd))
+        if self.dry_run:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                                    text=True, start_new_session=True)
+        except OSError as error:
+            self.log(f"cannot run {cmd[0]}: {error}")
+            return None
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            return None
+        return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
     def popen(self, cmd: list[str], log_path: Optional[Path] = None) -> Optional[subprocess.Popen]:
         """Started in the background; the caller polls for the effect, never waits for it."""
         self.log("$ " + shlex.join(cmd) + "  &")
@@ -657,8 +691,20 @@ class Rig:
         self.wait_ready()
 
     def _terminate_sim(self, inst: Instance) -> None:
-        # the previous scenario's process, so the new arguments apply even if --terminate-running-process hiccups
-        self.runner.run(["xcrun", "simctl", "terminate", str(inst.udid), BUNDLE_ID], check=False, quiet=True)
+        """The previous scenario's process, so the new arguments apply even if --terminate-running-process
+        hiccups. Best effort and bounded: `simctl terminate` can hang for minutes (rig run 20261102-104849
+        aborted on it); then the app's process, as launchd in the simulator lists it, is killed. Never
+        fails the scenario; `simctl launch --terminate-running-process` does the rest."""
+        udid = str(inst.udid)
+        if self.runner.run_bounded(["xcrun", "simctl", "terminate", udid, BUNDLE_ID], self.opts.terminate_timeout, quiet=True) is not None:
+            return
+        self.log(f"{inst.label}: simctl terminate did not return within {self.opts.terminate_timeout:.0f} s, killing the app process")
+        listing = self.runner.run_bounded(["xcrun", "simctl", "spawn", udid, "launchctl", "list"], 15.0, quiet=True)
+        pid = app_pid_from_launchctl(listing.stdout if listing else "", BUNDLE_ID)
+        if pid is None:
+            self.log(f"{inst.label}: no app process found" + ("" if listing else " (launchctl list did not answer)"))
+            return
+        self.runner.run_bounded(["kill", "-9", str(pid)], 5.0)
 
     def _terminate_mac(self, inst: Instance) -> None:
         pid = self.mac_pids.pop(inst.label, None)
@@ -686,7 +732,7 @@ class Rig:
                     self.log(f"{label} not answering after {self.opts.launch_retry:.0f} s, launching again ({relaunches[label]})")
                     if inst.launcher and inst.launcher.poll() is None:
                         inst.launcher.terminate()
-                    self.runner.run(["xcrun", "simctl", "terminate", str(inst.udid), BUNDLE_ID], check=False, quiet=True)
+                    self._terminate_sim(inst)
                     args = launch_arguments(inst.label, inst.port, self.current_run, self._extra_for(inst), ephemeral=False)
                     inst.launcher = self.runner.popen(["xcrun", "simctl", "launch", "--terminate-running-process", str(inst.udid), BUNDLE_ID] + args,
                                                       self.out / f"launch-{label}.log")
@@ -1037,7 +1083,7 @@ class Rig:
                 if pid:
                     self.runner.run(["kill", str(pid)], check=False)
             elif inst.udid and (self.opts.shutdown or self.opts.delete):
-                self.runner.run(["xcrun", "simctl", "terminate", inst.udid, BUNDLE_ID], check=False, quiet=True)
+                self._terminate_sim(inst)
         if self.opts.shutdown:
             for inst in self.instances:
                 if inst.kind == "sim" and inst.udid:
@@ -1079,6 +1125,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--boot-parallel", type=int, default=3, help="simulators booted at the same time")
     p.add_argument("--launch-timeout", type=float, default=180.0, help="seconds until every instance answers after launch")
     p.add_argument("--launch-retry", type=float, default=45.0, help="launch a simulator app again after this many silent seconds")
+    p.add_argument("--terminate-timeout", type=float, default=10.0, help="seconds for simctl terminate before the app process is killed")
     p.add_argument("--converge-timeout", type=float, default=120.0)
     p.add_argument("--cap2-timeout", type=float, default=240.0)
     p.add_argument("--heal-timeout", type=float, default=150.0)

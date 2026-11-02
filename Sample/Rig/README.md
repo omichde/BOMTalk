@@ -121,6 +121,10 @@ Bad requests get 400, unknown paths 404, wrong methods 405.
   bundle; macOS may ask once for local network access, which needs a click. They are stopped by pid at the end.
 - `simctl launch` sometimes blocks: it runs in the background and the rig waits for `/state` to
   answer, launching again after `--launch-retry` seconds of silence.
+- `simctl terminate` sometimes hangs for minutes (one run aborted on it after 120 s): the rig gives it
+  `--terminate-timeout` (10 s), then kills the app's process (pid from `simctl spawn <udid> launchctl
+  list`) and relies on `simctl launch --terminate-running-process`; a hanging terminate never fails
+  a scenario.
 - Findings of 2026-11-01 (see `RELAY-PLAN.md`): an iPhone 16e simulator once never connected (MPC
   `Timed out, enforcing clean up`); if a scenario fails to converge on one instance only, look at
   its `events-*.jsonl` first.

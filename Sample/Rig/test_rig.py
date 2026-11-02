@@ -57,6 +57,19 @@ class HelperTests(unittest.TestCase):
         with self.assertRaises(rig.RigError):
             rig.pick_runtime([])
 
+    def test_app_pid_from_launchctl(self):
+        listing = ("PID\tStatus\tLabel\n-\t0\tUIKitApplication:de.werk01.BOMTalkSampleX[1][rb-legacy]\n"
+                   "321\t0\tUIKitApplication:de.werk01.BOMTalkSample[9f3c][rb-legacy]\n")
+        self.assertEqual(rig.app_pid_from_launchctl(listing, "de.werk01.BOMTalkSample"), 321)
+        self.assertIsNone(rig.app_pid_from_launchctl(listing.replace("321", "-"), "de.werk01.BOMTalkSample"))
+        self.assertIsNone(rig.app_pid_from_launchctl("", "de.werk01.BOMTalkSample"))
+
+    def test_run_bounded_kills_a_hanging_command(self):
+        runner = rig.Runner(log=lambda *_: None)
+        self.assertEqual(runner.run_bounded(["true"], 5).returncode, 0)
+        self.assertIsNone(runner.run_bounded(["sleep", "30"], 0.2))
+        self.assertIsNone(runner.run_bounded(["/nonexistent/command"], 1))
+
     def test_launch_arguments(self):
         args = rig.launch_arguments("rig-3", 8103, "run1", ["-linkCap", "2"])
         self.assertEqual(args[:8], ["-autostart", "YES", "-controlPort", "8103", "-label", "rig-3", "-runID", "run1"])
@@ -313,6 +326,7 @@ class FakeWorld:
         self.blob_fails = False
         self.lose_every = 0  # drop every n-th ping per receiver
         self.frozen = {}  # label -> from when it answers nothing at all (state and commands time out)
+        self.hanging_terminate = set()  # udids whose `simctl terminate` never returns
         self.pending_blobs = []
         self.ticks = 0
 
@@ -496,6 +510,28 @@ class FakeRunner(rig.Runner):
                 node.launched_at = None
         return subprocess.CompletedProcess(cmd, 1 if cmd[:3] == ["xcrun", "simctl", "get_app_container"] else 0, "", "")
 
+    def run_bounded(self, cmd, timeout, quiet=False):
+        """`simctl terminate` of a udid in the world's `hanging_terminate` never returns; launchctl lists the nodes."""
+        self.commands.append(cmd)
+        if cmd[:3] == ["xcrun", "simctl", "terminate"]:
+            if cmd[3] in self.world.hanging_terminate:
+                self.clock.sleep(timeout)
+                return None
+            if node := self.node_of(cmd[3]):
+                node.launched_at = None
+        elif cmd[:3] == ["xcrun", "simctl", "spawn"] and cmd[4:] == ["launchctl", "list"]:
+            node = self.node_of(cmd[3])
+            pid = str(4000 + node.index) if node and node.launched_at is not None else "-"
+            listing = f"PID\tStatus\tLabel\n123\t0\tcom.apple.springboard\n{pid}\t0\tUIKitApplication:{rig.BUNDLE_ID}[a1b2][rb-legacy]\n"
+            return subprocess.CompletedProcess(cmd, 0, listing, "")
+        elif cmd[:2] == ["kill", "-9"]:
+            node = next(n for n in self.world.nodes.values() if 4000 + n.index == int(cmd[2]))
+            node.launched_at = None
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def node_of(self, udid):
+        return self.world.nodes.get(udid.removeprefix("udid-"))
+
     def popen(self, cmd, log_path=None):
         self.commands.append(cmd)
         args = cmd[cmd.index("-autostart"):]
@@ -562,6 +598,20 @@ class ScenarioTests(unittest.TestCase):
         self.assertTrue(all("T-converge" in c for c in launches))
         states = (Path(instance.opts.out) / "states.jsonl").read_text().splitlines()
         self.assertTrue(states and "rig-0" in json.loads(states[-1])["states"])
+
+    def test_hanging_terminate_kills_the_app_process(self):
+        instance, world = build_rig(2)
+        world.hanging_terminate = {"udid-rig-1"}
+        world.nodes["rig-1"].launched_at = instance.clock.now()
+        started = instance.clock.now()
+        instance._terminate_sim(instance.instances[1])
+        self.assertIsNone(world.nodes["rig-1"].launched_at)
+        self.assertIn(["kill", "-9", "4001"], instance.runner.commands)
+        self.assertLessEqual(instance.clock.now() - started, instance.opts.terminate_timeout + 1)
+        # a scenario goes on with terminates that never return
+        result, instance, _ = self.run_one("converge", setup=lambda w: setattr(w, "hanging_terminate", {"udid-rig-0", "udid-rig-2"}))
+        self.assertTrue(result.passed, rig.summary_text([result], ""))
+        self.assertEqual(sum(c[:3] == ["xcrun", "simctl", "terminate"] for c in instance.runner.commands), 4)
 
     def test_launch_fails_when_one_never_answers(self):
         # an instance that never comes up: launch gets retried, then the rig reports it
