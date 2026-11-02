@@ -1,7 +1,8 @@
 # BOMTalk relay – beyond 8 devices
 
-Branch: `feature/relay`. Status: phase 1 (foundations), phase 3 (RelayTransport), phase 4 (link policy)
-and phase 4b (flow control) done; `-autostart` in the Sample.
+Branch: `feature/relay`. Status: phase 1 (foundations), phase 2 (debug control layer + rig script,
+not yet run on simulators), phase 3 (RelayTransport), phase 4 (link policy) and phase 4b (flow control)
+done; `-autostart` in the Sample.
 
 ## Problem
 
@@ -211,6 +212,33 @@ optional later add-on for interactive use.
    `SimRadio`s on virtual time (visibility graph, session cap, faults, seeded, `Wrap` hook for decorators).
 2. **Debug control layer + simulator rig** – `/state`, commands, event log, rig script; investigate the
    iPhone 16e connect failure. *Done when* a scripted 3-simulator run reports state without UI.
+   **Done (code and offline checks; the first real simulator run is still to do):**
+   - **Per-peer flow control cap** (hardening, found after 4b): all transfers to one peer share
+     `FlowControl.peerWindow` (1 MB = 2 × the per-transfer window) of unacknowledged bytes, on top of the
+     per-transfer window. Round-robin and suspend / resume unchanged; an idle peer always admits one
+     chunk. Sim test: 6 × 512 KB blobs over a 200 kB/s two-hop line complete without expired entries
+     with the cap and lose the origin's map entry without it (6 × 512 KB = 15 s of queue > 10 s expiry).
+     Limit: 1 MB is 10 s of queue at 100 kB/s, right at the hello expiry; for Bluetooth-like links a
+     smaller value (or a per-link cap in the relay) may be needed.
+   - **Debug SPI** (`@_spi(Debug)`, `Debug.swift`, normal API unchanged): `Talk.debugSnapshot()`
+     (`TalkDebugSnapshot`, Codable: me, peers, neighbours, routes, link map with ages, relay counters
+     incl. drops by reason, slots, suppressed / bridge candidates, link actions, flags, transfers,
+     block list), `Talk(…, debug: TalkDebugOptions(linkCap:ephemeralIdentity:blockedNames:))`,
+     `debugSetBlocked(_:)` (display names; `LinkTransport` hides them from the machine and drops existing
+     links; unblocking replays what the browser saw), `debugDisconnect(_:)` (direct links only). Ephemeral
+     identity: random UUID and peer id, no Keychain / UserDefaults. `DebugTests` on the sim network.
+   - **Control layer in the Sample** (launch arguments only): `-controlPort` starts an `NWListener` HTTP
+     server (`HTTPServer.swift`, own queue, partial reads, 400 / 404 / 405 / 408 / 413, one request per
+     connection) with `GET /state` and `POST /command`; `-linkCap`, `-ephemeral`, `-block`, `-label`,
+     `-runID`, `-soak`, `-soakBlobMB`, `-acceptBlobs`. `ControlCenter` holds the state and commands,
+     polls the snapshot once a second for the JSON-lines event log (`EventLog`, Documents, 1 s flush,
+     4 MB rotation) and runs the soak pings (`SoakPing`, per-origin `OriginStats`). The Xcode project was
+     edited by hand (xcodegen is not installed); `project.yml` needs no change.
+   - **Rig** (`Sample/Rig/rig.py`, README there): scenarios `converge`, `cap2`, `heal`, `soak`, `blob`,
+     JSON report plus summary, `--dry-run`. `test_rig.py` runs every scenario against a fake world that
+     answers like the app, plus the pure helpers.
+   - Not validated yet: everything that needs a running app or simulator (the control layer inside the
+     app, `simctl` calls, scenario thresholds, the iPhone 16e question).
 3. **RelayTransport** – envelope, hello / link map, routing, dedupe. *Done when* simulator scenarios
    for convergence, multi-hop transfer and relay loss pass.
    **Done:** `RelayTransport` (decorator over `LinkTransport`, wired in `Talk`'s public init),
@@ -324,9 +352,8 @@ optional later add-on for interactive use.
      `.timeout` on both ends (the sender used to report success); sim tests wait for `send` on virtual
      time (`SimNetwork.value(of:)`), since it completes only with the final ack; `busyLinkNotDropped`
      now also requires that the *sending* link is not dropped while data flows.
-   - Remaining limits: one window per transfer, not per link: n concurrent transfers over one link
-     queue n × 512 KB (≈ 5 s per transfer at Bluetooth-like 100 kB/s, so a few concurrent transfers
-     over a slow link can still delay hellos past the expiry). No retransmission: a lost chunk fails the
+   - Remaining limits: the window is per transfer and per peer (`peerWindow`, phase 2), not per link: transfers
+     to different peers over the same first link still add up. No retransmission: a lost chunk fails the
      transfer. Throughput is bounded by window / round trip (512 KB per RTT over all hops).
 5. **Real devices** – cap 2 on 4 devices, verify `cancelConnectPeer`, soak run. *Done when* a 30 min
    soak with faults shows full delivery or clean failures only.

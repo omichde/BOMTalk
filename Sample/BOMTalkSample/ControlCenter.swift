@@ -88,6 +88,7 @@ final class ControlCenter {
 		let isRunning: Bool
 		let wantsRunning: Bool
 		let darkSecondsLeft: Double?
+		let eventLog: String
 		let controlPort: UInt16?
 		let linkCap: Int?
 		let ephemeral: Bool
@@ -146,10 +147,18 @@ final class ControlCenter {
 	init(model: DemoModel, options: LaunchOptions) {
 		self.model = model
 		self.options = options
-		events = EventLog(runID: options.runID, label: model.talk.me.name)
+		let label = model.talk.me.name
+		// ephemeral instances run side by side on a Mac and share one Documents folder
+		let fileName = options.ephemeral ? "bomtalk-events-\(Self.fileSafe(label)).jsonl" : EventLog.defaultFileName
+		events = EventLog(fileName: fileName, runID: options.runID, label: label)
 	}
 
 	private var talk: Talk { model.talk }
+
+	/// Letters, digits, `-` and `_` only.
+	static func fileSafe(_ name: String) -> String {
+		String(name.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" })
+	}
 
 	// MARK: - Lifecycle
 
@@ -419,6 +428,7 @@ final class ControlCenter {
 				isRunning: talk.isRunning,
 				wantsRunning: model.wantsRunning,
 				darkSecondsLeft: darkUntil.map { max(0, Self.seconds($0 - ContinuousClock.now)) },
+				eventLog: events.path,
 				controlPort: options.controlPort,
 				linkCap: options.linkCap,
 				ephemeral: options.ephemeral,

@@ -174,6 +174,11 @@ info, a broadcast chat and large blob transfers with progress, including `.notWa
 receiver does not accept blobs. Run it on two devices in the same network. The project is
 generated from `Sample/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
+For scripted multi-device runs the Sample has launch arguments (`-autostart`, `-controlPort`,
+`-linkCap`, `-soak`, …) and an HTTP control layer; `Sample/Rig/` drives several simulators with it
+(see its README). The package side is `@_spi(Debug)`: `Talk.debugSnapshot()`, a debug init with a
+link cap and ephemeral identity, a block list. It is not part of the public API.
+
 ## Tests
 
 `swift test` runs a small set of behaviour tests over an in-memory loopback transport, no devices

@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// JSON lines in the app's Documents folder (`bomtalk-events.jsonl`), one event per line:
+/// JSON lines in the app's Documents folder (`bomtalk-events.jsonl`, `bomtalk-events-<label>.jsonl` for `-ephemeral` instances), one event per line:
 /// `{"t":<seconds since 1970>,"up":<seconds since launch>,"run":…,"label":…,"type":…, …fields}`.
 ///
 /// Encoding happens on the caller (main actor), file I/O only on the log's own queue: lines are
@@ -13,10 +13,12 @@ import Foundation
 /// (replacing an older one) and a new one starts, so a long soak run keeps the last 1–2 files' worth.
 final class EventLog: @unchecked Sendable {
 
-	static let fileName = "bomtalk-events.jsonl"
+	static let defaultFileName = "bomtalk-events.jsonl"
 	static let flushInterval: TimeInterval = 1
 
 	private let url: URL
+	/// Where the log is written.
+	var path: String { url.path }
 	private let rotatedURL: URL
 	private let maxBytes: Int
 	private let runID: String
@@ -32,9 +34,10 @@ final class EventLog: @unchecked Sendable {
 		FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
 	}
 
-	init(directory: URL = EventLog.defaultDirectory, maxBytes: Int = 4 * 1024 * 1024, runID: String, label: String) {
-		url = directory.appendingPathComponent(Self.fileName)
-		rotatedURL = directory.appendingPathComponent("bomtalk-events.1.jsonl")
+	/// - Parameter fileName: Several instances sharing one Documents folder (macOS) need their own.
+	init(directory: URL = EventLog.defaultDirectory, fileName: String = EventLog.defaultFileName, maxBytes: Int = 4 * 1024 * 1024, runID: String, label: String) {
+		url = directory.appendingPathComponent(fileName)
+		rotatedURL = directory.appendingPathComponent(fileName.replacingOccurrences(of: ".jsonl", with: ".1.jsonl"))
 		self.maxBytes = maxBytes
 		self.runID = runID
 		self.label = label
