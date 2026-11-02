@@ -15,6 +15,8 @@ struct SimHandle: Hashable, Sendable, CustomStringConvertible {
 
 enum SimError: Error {
 	case notConnected
+	/// A virtual time limit passed.
+	case timeout
 }
 
 /// `LinkRadio` of one simulated device. Only bookkeeping of its own run; everything between devices

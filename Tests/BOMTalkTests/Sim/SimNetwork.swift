@@ -28,9 +28,11 @@ struct SimConfig {
 	var step: Duration = .milliseconds(10)
 	/// Main actor yields per step while any device has a `Talk`, so its tasks can run (otherwise one).
 	var yields = 10
-	/// Talk timeouts are real time, not virtual.
+	/// Talk timeouts, on virtual time like everything else.
 	var offerTimeout: Duration = .seconds(30)
 	var chunkTimeout: Duration = .seconds(30)
+	/// Talk's flow control window per outgoing transfer; `Int.max` turns flow control off.
+	var window = FlowControl.window
 }
 
 /// Deterministic generator (SplitMix64).
@@ -62,6 +64,8 @@ struct SeededGenerator: RandomNumberGenerator {
 ///   `connected` after `handshake`. The cap of `sessionCapacity` peers (including self) is checked on
 ///   both sides when accepting; beyond it the connection fails with `notConnected` on both sides.
 /// - **Data** arrives after `latency`, in order per link; sending on a link that is not connected throws.
+///   With `bandwidth`, each link direction is one FIFO queue: a frame goes out only after everything
+///   sent before it on that link (hellos wait behind queued chunks, like in MPC's reliable queue).
 ///
 /// Every callback goes through the timers, so it arrives on a later turn, like MPC's main-queue hop.
 /// Nothing iterates hashed collections in an order-dependent way: same seed, same event order.
@@ -138,6 +142,9 @@ final class SimNetwork {
 	/// Violations of the `TransportEvent` ordering rules by any device's top transport, see
 	/// `TransportContract`. Each one is also recorded as a test issue.
 	private(set) var contractViolations: [String] = []
+	/// Data on a connected link for which this returns true is accepted but never delivered (single
+	/// lost frames, e.g. acks).
+	var loses: ((_ data: Data, _ from: Int, _ to: Int) -> Bool)?
 
 	private var rng: SeededGenerator
 	private var visible: Set<Pair> = []
@@ -160,7 +167,7 @@ final class SimNetwork {
 			let id = randomUUID()
 			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: 1, timers: timers, maxPeers: config.maxPeers, generation: config.generations[index] ?? RelayPolicy.generation)
 			let transport = wrap?(link, timers) ?? link
-			let talk = talk ? Talk(transport: transport, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout) : nil
+			let talk = talk ? Talk(transport: transport, timers: timers, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout, window: config.window) : nil
 			devices.append(SimDevice(index: index, radio: radio, link: link, transport: transport, talk: talk, network: self))
 		}
 	}
@@ -359,6 +366,18 @@ final class SimNetwork {
 		return true
 	}
 
+	/// Runs until `task` finished, then returns its value: a `Talk.send` completes only once the final
+	/// ack arrived, which needs virtual time. Throws `SimError.timeout` if `limit` (virtual) passes first.
+	func value<Success>(of task: Task<Success, any Error>, limit: Duration = .seconds(60)) async throws -> Success {
+		var finished = false
+		Task {
+			_ = await task.result
+			finished = true
+		}
+		guard await run(until: { finished }, limit: limit) else { throw SimError.timeout }
+		return try await task.value
+	}
+
 	/// Without talks once, so long runs never hog the main actor (other suites' real-time tests).
 	private func yield() async {
 		guard devices.contains(where: { $0.talk != nil }) else { return await Task.yield() }
@@ -430,7 +449,7 @@ final class SimNetwork {
 	func send(_ data: Data, from a: Int, to b: Int) throws {
 		let pair = Pair(a, b)
 		guard let link = links[pair], link.isConnected else { throw SimError.notConnected }
-		guard !link.isBlackholed else { return }
+		guard !link.isBlackholed, loses?(data, a, b) != true else { return }
 		var delay = config.latency
 		if let bandwidth = config.bandwidth {
 			let start = max(timers.now, link.busyUntil[a] ?? .zero)

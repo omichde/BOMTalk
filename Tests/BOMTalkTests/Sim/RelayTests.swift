@@ -75,7 +75,7 @@ import Testing
 		#expect(peer.state == .connected && peer.name == "d4")
 		let sending = Task { try await a.send(Chat(text: "over 4 hops"), to: peer) }
 		#expect(await net.run(until: { chats.messages.count == 1 }, limit: .seconds(5)))
-		try await sending.value
+		try await net.value(of: sending)
 		#expect(try chats.results[0].get().peer.id == a.me.id)
 
 		let blobs = Inbox<Blob>(e)
@@ -88,7 +88,7 @@ import Testing
 			}
 			return blobs.results.count == 1
 		}, limit: .seconds(60)))	// includes encoding in real time
-		try await blobSending.value
+		try await net.value(of: blobSending)
 		#expect(blobs.messages == [blob])
 		#expect(progress.count >= 3)	// observed in between, not just at 0 and done
 		#expect(net[2].relay.snapshot.counters.dataForwarded >= 16)
@@ -197,13 +197,13 @@ import Testing
 		#expect(net.contractViolations.isEmpty)
 	}
 
-	/// A relay link stalls mid-transfer: the transfer ends cleanly (completed, or a Talk error), and
+	/// A relay link stalls mid-transfer: both ends fail with `.timeout` once the chunk timeout passes
+	/// without progress (the sender no longer reports success for data the receiver never got), and
 	/// once the link counts as dead, traffic takes the other way round the ring.
 	@Test func blackholeMidTransfer() async throws {
 		var config = SimConfig()
 		config.bandwidth = 1_000_000
 		config.chunkTimeout = .seconds(1)
-		config.offerTimeout = .seconds(30)	// real time, other suites share the main actor
 		let net = SimNetwork(count: 6, seed: 16, config: config, talk: true, wrap: SimNetwork.relay)
 		net.ring()
 		net.startAll()
@@ -224,19 +224,14 @@ import Testing
 		#expect(await net.run(until: { (d.transfers.first?.completedBytes ?? 0) > 0 }, limit: .seconds(60)))
 		let first = try #require(net.route(0, 3))
 		net.blackhole(0, first)
+		let blackholed = net.now
 
-		// no hang: both ends finish; real time passes for Talk's chunk timeout
-		let deadline = ContinuousClock.now + .seconds(20)
-		while sent == nil || blobs.results.isEmpty {
-			try #require(ContinuousClock.now < deadline)
-			await net.run(for: .milliseconds(100))
-		}
-		switch blobs.results[0] {
-		case .success:
-			break
-		case let .failure(error):
-			#expect([TalkError.timeout, .peerDisconnected].contains(error))
-		}
+		// within the window at most half the blob passed the link: no progress, both ends time out
+		#expect(await net.run(until: { sent != nil && !blobs.results.isEmpty }, limit: .seconds(5)))
+		#expect(net.now - blackholed <= config.chunkTimeout + .milliseconds(500))
+		#expect(sent.map { if case .failure(.timeout) = $0 { true } else { false } } == true)
+		#expect(blobs.errors == [.timeout])
+		#expect(a.transfers.isEmpty && d.transfers.isEmpty)
 
 		// silent for `helloExpiry`: routed around; for `stalledDisconnect`: replaced by a fresh link
 		await net.run(for: RelayPolicy.helloExpiry + .seconds(2))
@@ -245,7 +240,7 @@ import Testing
 		let chats = Inbox<Chat>(d)
 		let sending = Task { try await a.send(Chat(text: "around"), to: try #require(a.peer(d))) }
 		#expect(await net.run(until: { chats.messages.count == 1 }, limit: .seconds(5)))
-		try await sending.value
+		try await net.value(of: sending)
 		#expect(net.contractViolations.isEmpty)
 	}
 

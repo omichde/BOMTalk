@@ -15,6 +15,7 @@ import Testing
 		Frame.reject(UUID()),
 		Frame.chunk(transferID: UUID(), index: 7, payload: Data([1, 2, 3])),
 		Frame.info(["role": "controller"]),
+		Frame.ack(transferID: UUID(), receivedBytes: 1 << 33),
 	])
 	func frameRoundTrip(_ frame: Frame) {
 		#expect(Frame(frame.encoded()) == frame)
@@ -33,6 +34,7 @@ import Testing
 			unknownType,
 			accept.dropLast(),
 			accept + Data([0]),
+			Frame.ack(transferID: UUID(), receivedBytes: 1).encoded().dropLast(),
 			Frame.chunk(transferID: UUID(), index: 0, payload: Data(count: Frame.maxChunkPayload + 1)).encoded(),
 		]
 		for data in malformed {

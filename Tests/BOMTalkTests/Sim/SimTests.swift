@@ -147,7 +147,7 @@ import Testing
 		let peer = try #require(a.peer(b))
 		let sending = Task { try await a.send(Chat(text: "Hi"), to: peer) }
 		#expect(await net.run(until: { inbox.messages == [Chat(text: "Hi")] }))
-		try await sending.value
+		try await net.value(of: sending)
 		#expect(try inbox.results[0].get().peer.id == a.me.id)
 	}
 

@@ -17,6 +17,10 @@ import os
 /// try await talk.send(Chat(text: "Hi"), to: peer)
 /// ```
 ///
+/// Transfers are flow controlled end to end: the receiver acknowledges received bytes, the sender
+/// keeps a bounded window of unacknowledged bytes in flight (`FlowControl`), so one transfer never
+/// piles up in a link's queue. `send` returns once the receiver acknowledged everything.
+///
 /// Known limitations: Swift task cancellation of `send` is not honoured yet (the transfer runs to
 /// its end). A receiver that accepts an offer only after the sender's offer timeout gets no chunks
 /// and reports `.timeout` itself once its chunk timeout passes.
@@ -52,10 +56,11 @@ public final class Talk {
 	private struct PendingOffer {
 		let peer: UUID
 		let continuation: CheckedContinuation<Result<Void, TalkError>, Never>
-		let timeout: Task<Void, Never>
+		let timeout: TimerToken
 	}
 
 	@ObservationIgnored private let transport: Transport
+	@ObservationIgnored private let timers: any Timers
 	@ObservationIgnored private let offerTimeout: Duration
 	@ObservationIgnored private let registry = SubscriberRegistry()
 	@ObservationIgnored private let reassembler: Reassembler
@@ -74,20 +79,28 @@ public final class Talk {
 		self.init(transport: RelayTransport(lower: MPCTransport(serviceType: serviceType, appID: appID, displayName: displayName, protocolVersion: protocolVersion), timers: TaskTimers()))
 	}
 
-	/// Internal designated initializer, tests inject a loopback transport and short timeouts.
-	init(transport: Transport, offerTimeout: Duration = .seconds(30), chunkTimeout: Duration = .seconds(30)) {
+	/// Internal designated initializer, tests inject a loopback transport, timers and short timeouts.
+	/// - Parameters:
+	///   - chunkTimeout: An incoming transfer without a chunk, or an outgoing one without an
+	///     acknowledgement, for this long fails with `.timeout`.
+	///   - window: Unacknowledged bytes per outgoing transfer, `FlowControl.window` (tests only).
+	init(transport: Transport, timers: any Timers = TaskTimers(), offerTimeout: Duration = .seconds(30), chunkTimeout: Duration = .seconds(30), window: Int = FlowControl.window) {
 		self.transport = transport
+		self.timers = timers
 		self.offerTimeout = offerTimeout
-		self.reassembler = Reassembler(timeout: chunkTimeout)
+		self.reassembler = Reassembler(timeout: chunkTimeout, timers: timers)
 		let local = transport.localPeer
 		self.me = Peer(id: local.id, name: local.name, state: .connected, info: local.info)
 		self.info = local.info
 		// strong capture is fine: the transport only refers back to `self` weakly
-		self.scheduler = Scheduler { data, peer throws(TalkError) in
+		self.scheduler = Scheduler(timers: timers, timeout: chunkTimeout, window: window) { data, peer throws(TalkError) in
 			try transport.send(data, to: peer)
 		}
 		reassembler.onTimeout = { [weak self] transfer in
 			self?.failIncoming(transfer, .timeout)
+		}
+		reassembler.onRepeatAck = { [weak self] transfer, receivedBytes in
+			self?.sendFrame(Frame.ack(transferID: transfer.id, receivedBytes: receivedBytes).encoded(), to: transfer.peer)
 		}
 		transport.onEvent = { [weak self] event in
 			self?.handle(event)
@@ -123,7 +136,8 @@ public final class Talk {
 		registry.publisher(for: type)
 	}
 
-	/// Sends a message to one connected peer. Returns once all data was handed to the network.
+	/// Sends a message to one connected peer. Returns once the peer acknowledged all data; throws
+	/// `.timeout` if it stops acknowledging for 30 s.
 	/// Throws `.encodingFailed` if `Message.kind` is empty or longer than 255 UTF-8 bytes.
 	public func send<Message: TalkMessage>(_ message: Message, to peer: Peer) async throws(TalkError) {
 		guard Self.isValid(kind: Message.kind) else { throw .encodingFailed }
@@ -132,8 +146,8 @@ public final class Talk {
 		try await transmit(payload, kind: Message.kind, to: peer.id)
 	}
 
-	/// Sends a message to all connected peers (encoded once). Peers without a subscriber for the
-	/// kind report `.notWanted`.
+	/// Sends a message to all connected peers (encoded once), each with its own flow control window.
+	/// Peers without a subscriber for the kind report `.notWanted`.
 	@discardableResult
 	public func send<Message: TalkMessage>(_ message: Message) async -> [Peer.ID: Result<Void, TalkError>] {
 		let recipients = peers.filter { $0.state == .connected }.map(\.id)
@@ -166,7 +180,8 @@ public final class Talk {
 
 	// MARK: - outgoing
 
-	/// Offer, wait for the answer, then send the chunks interleaved with other transfers.
+	/// Offer, wait for the answer, then send the chunks interleaved with other transfers until all are
+	/// acknowledged.
 	private func transmit(_ payload: Data, kind: String, to peer: UUID) async throws(TalkError) {
 		guard isConnected(peer) else { throw .notConnected }
 		let id = UUID()
@@ -174,8 +189,7 @@ public final class Talk {
 		let answer = await withCheckedContinuation { continuation in
 			do throws(TalkError) {
 				// register first, the answer may arrive while sending
-				offers[id] = PendingOffer(peer: peer, continuation: continuation, timeout: Task { [weak self, offerTimeout] in
-					guard (try? await Task.sleep(for: offerTimeout)) != nil else { return }
+				offers[id] = PendingOffer(peer: peer, continuation: continuation, timeout: timers.schedule(after: offerTimeout) { [weak self] in
 					self?.answer(id, .failure(.timeout))
 				})
 				try transport.send(offer.encoded(), to: peer)
@@ -265,11 +279,14 @@ public final class Talk {
 			answer(id, .failure(.notWanted))
 		case .chunk(let id, let index, let payload):
 			switch reassembler.add(payload, index: Int(index), to: id, from: peer) {
-			case .ignored, .progressed:
+			case .ignored, .progressed(acknowledge: nil):
 				break
+			case .progressed(acknowledge: let bytes?), .repeated(acknowledge: let bytes):
+				sendFrame(Frame.ack(transferID: id, receivedBytes: bytes).encoded(), to: peer)
 			case .failed(let transfer, let error):
 				failIncoming(transfer, error)
 			case .completed(let transfer, let data):
+				sendFrame(Frame.ack(transferID: id, receivedBytes: UInt64(transfer.totalBytes)).encoded(), to: peer)
 				transfers.removeAll { $0.id == transfer.id }
 				guard let sender = peers.first(where: { $0.id == peer }) else { return }
 				enqueueDelivery { [registry] in
@@ -279,6 +296,8 @@ public final class Talk {
 		case .info(let info):
 			guard let index = index(of: peer) else { return }
 			peers[index].info = info
+		case .ack(let id, let receivedBytes):
+			scheduler.acknowledge(id, receivedBytes: receivedBytes, from: peer)
 		}
 	}
 

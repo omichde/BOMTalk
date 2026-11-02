@@ -24,6 +24,8 @@ enum Frame: Sendable, Equatable {
 	case reject(UUID)
 	case chunk(transferID: UUID, index: UInt32, payload: Data)
 	case info([String: String])
+	/// Flow control: the receiver of a transfer has its first `receivedBytes` (see `FlowControl`).
+	case ack(transferID: UUID, receivedBytes: UInt64)
 
 	static let version: UInt8 = 1
 	/// Maximum payload bytes per chunk frame.
@@ -33,7 +35,7 @@ enum Frame: Sendable, Equatable {
 	private static let magic: [UInt8] = [0x42, 0x54]	// "BT"
 
 	private enum TypeCode: UInt8 {
-		case offer = 1, accept, reject, chunk, info
+		case offer = 1, accept, reject, chunk, info, ack
 	}
 
 	// MARK: encoding
@@ -80,6 +82,11 @@ enum Frame: Sendable, Equatable {
 			var writer = Self.writer(.info, capacity: plist.count)
 			writer.data(plist)
 			return writer.data
+		case .ack(let id, let receivedBytes):
+			var writer = Self.writer(.ack, capacity: 16 + 8)
+			writer.uuid(id)
+			writer.uint64(receivedBytes)
+			return writer.data
 		}
 	}
 
@@ -118,6 +125,9 @@ enum Frame: Sendable, Equatable {
 		case .info:
 			guard let info = try? PropertyListDecoder().decode([String: String].self, from: reader.rest()) else { return nil }
 			self = .info(info)
+		case .ack:
+			guard let id = reader.uuid(), let receivedBytes = reader.uint64(), reader.isAtEnd else { return nil }
+			self = .ack(transferID: id, receivedBytes: receivedBytes)
 		}
 	}
 }

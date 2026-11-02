@@ -136,11 +136,16 @@ stops accepting that kind. Several subscribers share one decoded value.
 - Always encrypted, always reliable.
 - Payloads are binary property lists, lzfse compressed, sent in chunks of up to 64 KB;
   concurrent transfers are interleaved.
-- 30 s timeouts for unanswered offers and stalled incoming transfers.
+- Flow control: the receiver acknowledges every 256 KB, the sender keeps at most 512 KB per
+  transfer unacknowledged, so a large transfer never piles up in a link's queue.
+  `send` returns once the receiver acknowledged everything (it may still fail to decode the
+  message; its `messages` stream reports that).
+- 30 s timeouts for unanswered offers and stalled transfers (incoming: no chunk, outgoing: no
+  acknowledgement). A chunk lost on the way is not resent; both ends fail with `.timeout`.
 - A disconnect during a transfer fails it cleanly (`.peerDisconnected`).
-- Progress: incoming counts received bytes; outgoing counts bytes handed to the network, which
-  MultipeerConnectivity buffers – so the sender usually reaches 100 % well before the receiver.
-  Finished or failed transfers are removed from `transfers`.
+- Progress: incoming counts received bytes; outgoing counts bytes the receiver acknowledged, so
+  both sides progress together (the sender in 256 KB steps). Finished or failed transfers are
+  removed from `transfers`.
 - `start()` / `stop()` are idempotent; `stop()` disconnects and clears `peers`.
 - `info` budget: about 300 bytes for your keys and values (after internal keys). Larger info
   still reaches connected peers but is not advertised during discovery. Set it before `start()`.
