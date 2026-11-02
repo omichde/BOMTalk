@@ -507,6 +507,28 @@ Runs `Sample/Rig/out/20261102-051125` (converge, 8 simulators, cap 7), `…-0525
    soak with faults shows full delivery or clean failures only.
 6. **Docs** – README behaviour notes (no fixed 8 limit, relay costs), fold this plan into a summary.
 
+## Status 2026-11-02 (end of the autonomous loop)
+
+Rig results per build (8 iOS 27.2 simulators unless noted, outputs in `Sample/Rig/out/`):
+
+| build | converge | cap2 | heal | blob (6) | soak cap 3 | soak cap 7 + 5 MB blobs |
+|---|---|---|---|---|---|---|
+| phase 2 (`b922764`) | PASS (4) | rig error, then PASS | PASS | PASS 1.64 MB/s | FAIL partitioned | – (no-blob variant PASS) |
+| fresh peer id, no starving (`b24828a`) | FAIL (1 device wedged) | PASS | FAIL (isolated end wedged) | PASS 1.63 MB/s | PASS, healed 34 s | rig error (app silent) |
+| radio reset, async sends (`3087dc9`) | not conclusive, see below | | | | | |
+
+- After about 30 rig runs the simulator environment degraded: **both** `b24828a` and `3087dc9` failed
+  to converge even on a 6-device forced line (invitations hang for the full timeout). Shutting down all
+  simulators, killing `CoreSimulatorService` and erasing the rig simulators helped for exactly one run:
+  `3087dc9` converged in 9 s, but its 10 MB blob ran at 0.22 MB/s with map entries expiring (possible
+  regression from the async `Outbox` sends: no backpressure from `MCSession.send` any more). The next
+  runs failed to converge again for both builds. A Mac reboot (fresh `mDNSResponder`) is needed before
+  further rig runs; until then rig results say more about the host than about BOMTalk.
+- Open: does the fresh `MCPeerID` per start (introduced in `116d99a`) contribute to the host
+  degradation? The degradation only appeared with fresh-id builds; Apple's guidance is to reuse an
+  archived peer id. Check after a reboot: run the rig with fresh ids vs. reused ids, many runs each.
+- Open: blob throughput with the `Outbox` (A/B `b24828a` vs `3087dc9` in a clean environment).
+
 ## Open questions
 
 - Envelope vs. smaller `Frame.maxChunkPayload`.
