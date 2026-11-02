@@ -7,8 +7,71 @@ import Foundation
 import Combine
 @_spi(Debug) import BOMTalk
 
+/// Measures the main actor from both sides: a main actor loop records how late its timer fires
+/// (`ControlCenter` keeps the `LagStats`) and beats; a timer on a background queue notices when the
+/// beats stop altogether and writes `main.stall` events while the stall lasts. A frozen main actor
+/// shows up in the log as it happens, a suspended app (no stall events either) does not.
+final class MainActorProbe: @unchecked Sendable {
+
+	static let interval: Duration = .milliseconds(500)
+	/// No beat for this long counts as a stall …
+	static let stallAfter: TimeInterval = 2
+	/// … reported again at this interval while it lasts.
+	static let stallRepeat: TimeInterval = 10
+
+	private let events: EventLog
+	private let lock = NSLock()
+	/// Only under `lock`.
+	private var lastBeat = ContinuousClock.now
+	private let queue = DispatchQueue(label: "de.werk01.BOMTalkSample.probe", qos: .utility)
+	// only on `queue`
+	private var timer: (any DispatchSourceTimer)?
+	private var stallReported: ContinuousClock.Instant?
+
+	init(events: EventLog) {
+		self.events = events
+	}
+
+	/// Seconds since the main actor last beat.
+	var silence: Double {
+		let beat = lock.withLock { lastBeat }
+		return ControlCenter.seconds(ContinuousClock.now - beat)
+	}
+
+	/// Called on the main actor by the measuring loop.
+	func beat() {
+		lock.withLock { lastBeat = .now }
+	}
+
+	func startWatchdog() {
+		queue.async { [self] in
+			guard timer == nil else { return }
+			let timer = DispatchSource.makeTimerSource(queue: queue)
+			timer.schedule(deadline: .now() + 1, repeating: 1)
+			timer.setEventHandler { [weak self] in self?.check() }
+			self.timer = timer
+			timer.resume()
+		}
+	}
+
+	// MARK: - on `queue`
+
+	private func check() {
+		let silence = silence
+		guard silence >= Self.stallAfter else {
+			stallReported = nil
+			return
+		}
+		if let reported = stallReported, ControlCenter.seconds(ContinuousClock.now - reported) < Self.stallRepeat {
+			return
+		}
+		stallReported = .now
+		events.record("main.stall", ["silentMs": (silence * 1000).rounded()])
+	}
+}
+
 /// Counters of the Sample's own traffic, for `GET /state`.
-struct TransferStats: Encodable, Equatable {
+struct TransferStats: Encodable, Equatable, Sendable {
 
 	struct Item: Encodable, Equatable {
 		let at: Double
@@ -67,7 +130,7 @@ final class ControlCenter {
 		var failures: [String: Int] = [:]
 	}
 
-	private struct SoakInfo: Encodable {
+	private struct SoakInfo: Encodable, Sendable {
 		let enabled: Bool
 		let nextSeq: Int
 		let sent: Int
@@ -77,7 +140,7 @@ final class ControlCenter {
 		let origins: [String: OriginStats]
 	}
 
-	private struct AppInfo: Encodable {
+	private struct AppInfo: Encodable, Sendable {
 		let label: String
 		let runID: String
 		let pid: Int32
@@ -94,16 +157,18 @@ final class ControlCenter {
 		let ephemeral: Bool
 		let soak: Bool
 		let soakBlobMB: Int?
+		/// Main actor delays since launch or the last `resetStats`.
+		let mainLag: LagStats
 	}
 
-	private struct SampleInfo: Encodable {
+	private struct SampleInfo: Encodable, Sendable {
 		let soak: SoakInfo
 		let transfers: TransferStats
 		let acceptBlobs: Bool
 		let sendingBlob: [String]
 	}
 
-	private struct StateResponse: Encodable {
+	private struct StateResponse: Encodable, Sendable {
 		let app: AppInfo
 		let talk: TalkDebugSnapshot
 		let sample: SampleInfo
@@ -117,6 +182,15 @@ final class ControlCenter {
 	private var activity: (any NSObjectProtocol)?
 	private var bag = Set<AnyCancellable>()
 	private var pollTask: Task<Void, Never>?
+	private var probeTask: Task<Void, Never>?
+	let probe: MainActorProbe
+	private var lag = LagStats()
+	/// Since the last summary.
+	private var lagWindow = LagStats()
+	/// Replies to commands with a `requestID`, so a retried command runs once (oldest first).
+	private var replies: [String: [String: Any]] = [:]
+	private var replyOrder: [String] = []
+	private var inFlight: Set<String> = []
 	private var soakTask: Task<Void, Never>?
 	private var darkTask: Task<Void, Never>?
 	private var darkUntil: ContinuousClock.Instant?
@@ -133,6 +207,7 @@ final class ControlCenter {
 	private var seenTransfers: [UUID: TalkDebugSnapshot.TransferInfo] = [:]
 	private var seenIssue: String?
 	private var seenRunning: Bool?
+	private var seenRadioResets = 0
 	private var loggedCounters: [String: Int] = [:]
 	private var loggedOrigins: [String: OriginStats] = [:]
 	private var pollCount = 0
@@ -143,6 +218,8 @@ final class ControlCenter {
 	static let summaryEvery = 10
 	/// A soak blob goes out every this many pings (30 s).
 	static let soakBlobEvery = 10
+	/// Replies kept for retried commands.
+	static let keptReplies = 64
 
 	init(model: DemoModel, options: LaunchOptions) {
 		self.model = model
@@ -151,6 +228,7 @@ final class ControlCenter {
 		// ephemeral instances run side by side on a Mac and share one Documents folder
 		let fileName = options.ephemeral ? "bomtalk-events-\(Self.fileSafe(label)).jsonl" : EventLog.defaultFileName
 		events = EventLog(fileName: fileName, runID: options.runID, label: label)
+		probe = MainActorProbe(events: events)
 	}
 
 	private var talk: Talk { model.talk }
@@ -175,9 +253,22 @@ final class ControlCenter {
 			"soak": options.soak,
 			"soakBlobMB": options.soakBlobMB ?? NSNull(),
 		])
+		probe.startWatchdog()
+		probeTask = Task { [weak self] in
+			while !Task.isCancelled {
+				let start = ContinuousClock.now
+				try? await Task.sleep(for: MainActorProbe.interval)
+				guard let self else { return }
+				probe.beat()
+				noteLag(Self.seconds(ContinuousClock.now - start - MainActorProbe.interval) * 1000)
+			}
+		}
 		if let port = options.controlPort {
 			let server = ControlServer(port: port, handler: { [weak self] request in
 				await self?.handle(request) ?? .error(503, "shutting down")
+			}, busy: { [probe] request in
+				// the state is polled; a command must not be answered before it ran
+				request.method == "GET" && request.path == "/state" ? .busy(mainSilentSeconds: probe.silence) : nil
 			}, log: { [events] message in
 				events.record("control.log", ["message": message])
 			})
@@ -273,6 +364,16 @@ final class ControlCenter {
 		origins[message.origin, default: OriginStats()].record(seq: message.seq, sentAt: message.sentAt, receivedAt: Date().timeIntervalSince1970)
 	}
 
+	// MARK: - Main actor lag
+
+	private func noteLag(_ milliseconds: Double) {
+		lag.record(milliseconds)
+		lagWindow.record(milliseconds)
+		if milliseconds >= 1000 {
+			log("main.lag.spike", ["ms": milliseconds.rounded()])
+		}
+	}
+
 	// MARK: - Event log from polling
 
 	private func poll() {
@@ -285,6 +386,10 @@ final class ControlCenter {
 		if seenIssue != snapshot.issue {
 			seenIssue = snapshot.issue
 			log("talk.issue", ["issue": snapshot.issue ?? NSNull()])
+		}
+		if seenRadioResets != snapshot.counters.radioResets {
+			seenRadioResets = snapshot.counters.radioResets
+			log("radio.reset", ["resets": snapshot.counters.radioResets])
 		}
 
 		for peer in snapshot.peers {
@@ -363,6 +468,7 @@ final class ControlCenter {
 			"bridgeConnects": counters.bridgeConnects,
 			"unlinksSent": counters.unlinksSent,
 			"unlinksReceived": counters.unlinksReceived,
+			"radioResets": counters.radioResets,
 		]
 		for (reason, count) in counters.drops {
 			now["drop.\(reason)"] = count
@@ -375,6 +481,8 @@ final class ControlCenter {
 			log("relay.counters", ["delta": changed, "reachable": snapshot.reachable.count, "neighbours": snapshot.neighbours.count])
 		}
 		loggedCounters = now
+		log("main.lag", ["samples": lagWindow.samples, "avgMs": (lagWindow.avgMs * 10).rounded() / 10, "maxMs": lagWindow.maxMs.rounded(), "over250ms": lagWindow.over250ms])
+		lagWindow = LagStats()
 
 		for (origin, stats) in origins.sorted(by: { $0.key < $1.key }) where stats != loggedOrigins[origin] {
 			let before = loggedOrigins[origin] ?? OriginStats()
@@ -402,7 +510,7 @@ final class ControlCenter {
 	func handle(_ request: HTTPRequest) async -> HTTPResponse {
 		switch (request.method, request.path) {
 		case ("GET", "/state"):
-			return state()
+			return await state()
 		case ("POST", "/command"):
 			return await command(request.body)
 		case (_, "/state"):
@@ -414,7 +522,8 @@ final class ControlCenter {
 		}
 	}
 
-	private func state() -> HTTPResponse {
+	/// Gathered on the main actor, encoded off it.
+	private func state() async -> HTTPResponse {
 		let uptime = ContinuousClock.now - launched
 		let response = StateResponse(
 			app: AppInfo(
@@ -433,7 +542,8 @@ final class ControlCenter {
 				linkCap: options.linkCap,
 				ephemeral: options.ephemeral,
 				soak: soakEnabled,
-				soakBlobMB: options.soakBlobMB
+				soakBlobMB: options.soakBlobMB,
+				mainLag: lag
 			),
 			talk: talk.debugSnapshot(),
 			sample: SampleInfo(
@@ -443,9 +553,12 @@ final class ControlCenter {
 				sendingBlob: model.sendingBlob.map { model.name(of: $0) }.sorted()
 			)
 		)
-		let encoder = JSONEncoder()
-		encoder.outputFormatting = [.sortedKeys]
-		guard let body = try? encoder.encode(response) else { return .error(500, "cannot encode state") }
+		let body = await Task.detached(priority: .userInitiated) {
+			let encoder = JSONEncoder()
+			encoder.outputFormatting = [.sortedKeys]
+			return try? encoder.encode(response)
+		}.value
+		guard let body else { return .error(500, "cannot encode state") }
 		return HTTPResponse(status: 200, body: body)
 	}
 
@@ -453,7 +566,20 @@ final class ControlCenter {
 		guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any], let name = object["cmd"] as? String else {
 			return .error(400, "body must be a JSON object with a \"cmd\" string")
 		}
+		// a retry (same request id) gets the first reply, or hears that the command is still running
+		let requestID = object["requestID"] as? String
+		if let requestID, let cached = replies[requestID] {
+			log("command", ["cmd": name, "requestID": requestID, "duplicate": true])
+			return Self.reply(cached.merging(["duplicate": true]) { _, new in new })
+		}
+		if let requestID, inFlight.contains(requestID) {
+			log("command", ["cmd": name, "requestID": requestID, "duplicate": true])
+			return Self.reply(["ok": true, "inProgress": true])
+		}
 		log("command", ["cmd": name, "args": object.filter { $0.key != "cmd" && JSONSerialization.isValidJSONObject([$0.value]) }])
+		if let requestID {
+			inFlight.insert(requestID)
+		}
 		var reply: [String: Any] = ["ok": true]
 		do {
 			try await run(name, object, into: &reply)
@@ -462,6 +588,18 @@ final class ControlCenter {
 		} catch {
 			reply = ["ok": false, "error": "\(error)"]
 		}
+		if let requestID {
+			inFlight.remove(requestID)
+			replies[requestID] = reply
+			replyOrder.append(requestID)
+			while replyOrder.count > Self.keptReplies {
+				replies[replyOrder.removeFirst()] = nil
+			}
+		}
+		return Self.reply(reply)
+	}
+
+	private static func reply(_ reply: [String: Any]) -> HTTPResponse {
 		guard let data = try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys]) else { return .error(500, "cannot encode reply") }
 		return HTTPResponse(status: reply["ok"] as? Bool == true ? 200 : 400, body: data)
 	}
@@ -528,6 +666,7 @@ final class ControlCenter {
 			origins = [:]
 			loggedOrigins = [:]
 			ping = Ping()
+			lag = LagStats()
 		default:
 			throw CommandError("unknown cmd \"\(name)\"; known: ping chat blob acceptBlobs disconnect block dark stop start soak resetStats")
 		}
@@ -569,7 +708,7 @@ final class ControlCenter {
 		return peer
 	}
 
-	private static func seconds(_ duration: Duration) -> Double {
+	nonisolated static func seconds(_ duration: Duration) -> Double {
 		Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
 	}
 

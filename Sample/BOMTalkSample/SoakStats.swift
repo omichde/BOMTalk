@@ -95,3 +95,45 @@ struct OriginStats: Encodable, Equatable, Sendable {
 		}
 	}
 }
+
+/// Delays of a main actor timer beyond its interval: how long the main actor was busy (or the app
+/// not scheduled at all). Pure value logic, `MainActorProbe` feeds it.
+struct LagStats: Encodable, Equatable, Sendable {
+
+	private(set) var samples = 0
+	private(set) var lastMs = 0.0
+	private(set) var maxMs = 0.0
+	/// Samples at or above 250 ms and 1 s.
+	private(set) var over250ms = 0
+	private(set) var over1s = 0
+	private var sumMs = 0.0
+	var avgMs: Double { samples == 0 ? 0 : sumMs / Double(samples) }
+
+	enum CodingKeys: String, CodingKey {
+		case samples, lastMs, avgMs, maxMs, over250ms, over1s
+	}
+
+	func encode(to encoder: any Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		try c.encode(samples, forKey: .samples)
+		try c.encode((lastMs * 10).rounded() / 10, forKey: .lastMs)
+		try c.encode((avgMs * 10).rounded() / 10, forKey: .avgMs)
+		try c.encode((maxMs * 10).rounded() / 10, forKey: .maxMs)
+		try c.encode(over250ms, forKey: .over250ms)
+		try c.encode(over1s, forKey: .over1s)
+	}
+
+	mutating func record(_ lagMs: Double) {
+		let lag = max(0, lagMs)
+		samples += 1
+		lastMs = lag
+		maxMs = max(maxMs, lag)
+		sumMs += lag
+		if lag >= 250 {
+			over250ms += 1
+		}
+		if lag >= 1000 {
+			over1s += 1
+		}
+	}
+}

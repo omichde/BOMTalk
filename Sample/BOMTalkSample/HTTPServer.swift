@@ -27,6 +27,12 @@ struct HTTPResponse: Sendable, Equatable {
 		return HTTPResponse(status: status, body: (try? JSONSerialization.data(withJSONObject: object)) ?? Data())
 	}
 
+	/// 503 `{"ok":false,"busy":true,"mainSilentMs":…}`: the main actor did not get to the request in time.
+	static func busy(mainSilentSeconds: Double) -> HTTPResponse {
+		let object: [String: Any] = ["ok": false, "busy": true, "error": "main actor busy", "mainSilentMs": (mainSilentSeconds * 1000).rounded()]
+		return HTTPResponse(status: 503, body: (try? JSONSerialization.data(withJSONObject: object)) ?? Data())
+	}
+
 	var encoded: Data {
 		let head = "HTTP/1.1 \(status) \(Self.reason(status))\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n"
 		return Data(head.utf8) + body
@@ -132,13 +138,18 @@ struct HTTPParser {
 
 /// A tiny HTTP server on `NWListener` for the debug control layer: one request per connection, runs
 /// on its own queue, hands requests to `handler` (which hops to the main actor itself). Restarts the
-/// listener if it fails (port still in use right after a relaunch).
+/// listener if it fails (port still in use right after a relaunch). If the handler takes longer than
+/// `busyDelay`, `busy` may answer in its place (on the server's queue), so a client polling the state
+/// of a busy app learns that instead of timing out.
 final class ControlServer: @unchecked Sendable {
 
 	typealias Handler = @Sendable (HTTPRequest) async -> HTTPResponse
+	/// The answer for a request the handler has not answered within `busyDelay`, nil to keep waiting.
+	typealias Busy = @Sendable (HTTPRequest) -> HTTPResponse?
 
 	private let port: UInt16
 	private let handler: Handler
+	private let busy: Busy?
 	private let log: @Sendable (String) -> Void
 	private let queue = DispatchQueue(label: "de.werk01.BOMTalkSample.control")
 	// everything below only on `queue`
@@ -149,10 +160,13 @@ final class ControlServer: @unchecked Sendable {
 	static let maxConnections = 32
 	static let requestTimeout: TimeInterval = 10
 	static let restartDelay: TimeInterval = 2
+	/// Below the rig's 5 s state timeout.
+	static let busyDelay: TimeInterval = 3
 
-	init(port: UInt16, handler: @escaping Handler, log: @escaping @Sendable (String) -> Void = { _ in }) {
+	init(port: UInt16, handler: @escaping Handler, busy: Busy? = nil, log: @escaping @Sendable (String) -> Void = { _ in }) {
 		self.port = port
 		self.handler = handler
+		self.busy = busy
 		self.log = log
 	}
 
@@ -207,7 +221,7 @@ final class ControlServer: @unchecked Sendable {
 
 	private func accept(_ nwConnection: NWConnection) {
 		guard connections.count < Self.maxConnections else { return nwConnection.cancel() }
-		let connection = Connection(nwConnection, queue: queue, handler: handler) { [weak self] connection in
+		let connection = Connection(nwConnection, queue: queue, handler: handler, busy: busy) { [weak self] connection in
 			self?.connections[ObjectIdentifier(connection)] = nil
 		}
 		connections[ObjectIdentifier(connection)] = connection
@@ -220,16 +234,18 @@ final class ControlServer: @unchecked Sendable {
 		private let connection: NWConnection
 		private let queue: DispatchQueue
 		private let handler: Handler
+		private let busy: Busy?
 		private let onDone: (Connection) -> Void
 		private var parser = HTTPParser()
 		private var timeout: DispatchWorkItem?
 		private var isDone = false
 		private var isResponding = false
 
-		init(_ connection: NWConnection, queue: DispatchQueue, handler: @escaping Handler, onDone: @escaping (Connection) -> Void) {
+		init(_ connection: NWConnection, queue: DispatchQueue, handler: @escaping Handler, busy: Busy?, onDone: @escaping (Connection) -> Void) {
 			self.connection = connection
 			self.queue = queue
 			self.handler = handler
+			self.busy = busy
 			self.onDone = onDone
 		}
 
@@ -266,6 +282,14 @@ final class ControlServer: @unchecked Sendable {
 						return respond(.error(status, reason))
 					case let .request(request):
 						timeout?.cancel()
+						if let busy {
+							let fallback = DispatchWorkItem { [weak self] in
+								guard let self, let response = busy(request) else { return }
+								respond(response)
+							}
+							timeout = fallback	// cancelled by `respond` like the request timeout
+							queue.asyncAfter(deadline: .now() + ControlServer.busyDelay, execute: fallback)
+						}
 						let handler = handler
 						Task {
 							let response = await handler(request)
