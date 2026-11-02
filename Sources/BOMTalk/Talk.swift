@@ -71,7 +71,7 @@ public final class Talk {
 	///   - displayName: Name shown on other devices.
 	///   - protocolVersion: Only peers with the same version connect.
 	public convenience init(serviceType: String, appID: String, displayName: String, protocolVersion: Int = 1) {
-		self.init(transport: MPCTransport(serviceType: serviceType, appID: appID, displayName: displayName, protocolVersion: protocolVersion))
+		self.init(transport: RelayTransport(lower: MPCTransport(serviceType: serviceType, appID: appID, displayName: displayName, protocolVersion: protocolVersion), timers: TaskTimers()))
 	}
 
 	/// Internal designated initializer, tests inject a loopback transport and short timeouts.
