@@ -12,15 +12,21 @@ typealias MPCTransport = LinkTransport<MPCRadio>
 
 extension LinkTransport where Radio == MPCRadio {
 
-	convenience init(serviceType: String, appID: String, displayName: String, protocolVersion: Int) {
-		let identity = MPCIdentity.load(appID: appID, displayName: displayName, defaults: .standard, store: KeychainUUIDStore(service: "BOMTalk.\(appID)"))
+	/// - Parameters:
+	///   - maxPeers: Peer cap, below `MPCPolicy.maxRemotePeers` only for debugging (2 = 1 regular + 1 bridge).
+	///   - ephemeral: A random identity, nothing stored (debug rigs).
+	convenience init(serviceType: String, appID: String, displayName: String, protocolVersion: Int, maxPeers: Int = MPCPolicy.maxRemotePeers, ephemeral: Bool = false) {
+		let identity = ephemeral
+			? MPCIdentity.ephemeral(displayName: displayName)
+			: MPCIdentity.load(appID: appID, displayName: displayName, defaults: .standard, store: KeychainUUIDStore(service: "BOMTalk.\(appID)"))
 		self.init(
 			radio: MPCRadio(peerID: identity.peerID, serviceType: serviceType),
 			localID: identity.uuid,
 			displayName: identity.displayName,
 			appID: appID,
 			protocolVersion: protocolVersion,
-			timers: TaskTimers()
+			timers: TaskTimers(),
+			maxPeers: maxPeers
 		)
 	}
 }

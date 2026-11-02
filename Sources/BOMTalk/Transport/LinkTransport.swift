@@ -15,7 +15,7 @@ import os
 ///
 /// `LinkControl` lets the relay above steer admission (`LinkPolicy`) and drop single links.
 @MainActor
-final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl {
+final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugControl {
 
 	var onEvent: (@MainActor (TransportEvent) -> Void)?
 	private(set) var localPeer: TransportPeer
@@ -34,6 +34,10 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl {
 	/// Machine actions not performed yet, in order; see `perform(_:)`.
 	private var queue: [MPCPeerMachine<Radio.Handle>.Action] = []
 	private var isPerforming = false
+	/// Debug block list (display names) and the browser's view of every handle, blocked or not, so
+	/// unblocking can replay what was hidden.
+	private(set) var blockedNames: Set<String> = []
+	private var sighted: [Radio.Handle: [String: String]] = [:]
 
 	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers, generation: Int = RelayPolicy.generation) {
 		self.radio = radio
@@ -66,6 +70,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl {
 		radio.stop()
 		machine.reset()
 		queue = []
+		sighted = [:]
 	}
 
 	/// Restarts the advertiser at most once per `advertiserRestartDelay`, with the latest info.
@@ -104,6 +109,28 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl {
 		perform(machine.disconnect(id))
 	}
 
+	// MARK: - LinkDebugControl
+
+	func setBlockedNames(_ names: Set<String>) {
+		guard names != blockedNames else { return }
+		let before = blockedNames
+		blockedNames = names
+		guard isRunning else { return }
+		for (handle, info) in sighted.sorted(by: { radio.displayName(of: $0.key) < radio.displayName(of: $1.key) }) {
+			let name = radio.displayName(of: handle)
+			let wasBlocked = before.contains(name), isBlocked = names.contains(name)
+			if isBlocked && !wasBlocked {
+				// invisible first (no reconnect), then drop whatever link there is
+				perform(machine.lost(handle))
+				if let id = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion, generation: generation)?.id {
+					perform(machine.disconnect(id))
+				}
+			} else if wasBlocked && !isBlocked {
+				found(handle, info: info)
+			}
+		}
+	}
+
 	// MARK: - Radio callbacks (on main, in arrival order)
 
 	private func handle(_ event: LinkRadioEvent<Radio.Handle>) {
@@ -115,10 +142,14 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl {
 		}
 		switch event {
 		case let .found(handle, info):
+			sighted[handle] = info ?? [:]
+			guard !blockedNames.contains(radio.displayName(of: handle)) else { return }
 			found(handle, info: info)
 		case let .lost(handle):
+			sighted[handle] = nil
 			perform(machine.lost(handle))
 		case let .invitation(handle, context, reply):
+			guard !blockedNames.contains(radio.displayName(of: handle)) else { return reply(false) }
 			guard let id = InvitationContext.decode(context, appID: appID, protocolVersion: protocolVersion, generation: generation) else {
 				return reply(false)
 			}

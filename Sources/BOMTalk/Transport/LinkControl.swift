@@ -35,3 +35,12 @@ protocol LinkControl: AnyObject {
 	/// Drops the link to a peer, pending or connected: `disconnected` follows like for any drop.
 	func disconnect(_ id: UUID)
 }
+
+/// Debug controls of a link transport (`Talk`'s Debug SPI, simulator rigs): ignore devices by name.
+@MainActor
+protocol LinkDebugControl: AnyObject {
+	/// Display names of devices that are treated as invisible: not found, not invited, their
+	/// invitations declined, existing links dropped. An empty set unblocks them again.
+	var blockedNames: Set<String> { get }
+	func setBlockedNames(_ names: Set<String>)
+}

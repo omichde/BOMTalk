@@ -32,6 +32,12 @@ struct MPCIdentity {
 		return name.isEmpty ? "Peer" : name
 	}
 
+	/// A random identity that touches neither Keychain nor UserDefaults: for several instances on one
+	/// Mac (debug rigs), which would otherwise share one stored identity and look cloned.
+	static func ephemeral(displayName: String) -> MPCIdentity {
+		MPCIdentity(uuid: UUID(), peerID: MCPeerID(displayName: peerName(displayName)))
+	}
+
 	/// Loads the stored identity, creating or updating it as needed.
 	static func load(appID: String, displayName: String, defaults: UserDefaults, store: any MPCUUIDStore) -> MPCIdentity {
 		let key = key(appID: appID)

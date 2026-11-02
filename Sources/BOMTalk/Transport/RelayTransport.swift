@@ -243,11 +243,26 @@ final class RelayTransport: Transport {
 		links[route.nextHop]?.lastData = timers.now
 	}
 
-	// MARK: - Introspection
+	// MARK: - Introspection and debug controls
+
+	/// Drops the link to a direct neighbour (pending or connected); false if there is none. The lower
+	/// transport reconnects with backoff like after any drop.
+	func debugDisconnect(_ id: UUID) -> Bool {
+		guard isRunning, links[id] != nil, let control else { return false }
+		control.disconnect(id)
+		return true
+	}
+
+	/// Devices with these display names are invisible to the lower transport, see `LinkDebugControl`.
+	var debugBlocked: Set<String> {
+		get { (lower as? any LinkDebugControl)?.blockedNames ?? [] }
+		set { (lower as? any LinkDebugControl)?.setBlockedNames(newValue) }
+	}
 
 	var snapshot: RelaySnapshot {
 		let now = timers.now
 		return RelaySnapshot(
+			now: now,
 			neighbours: linked,
 			reachable: routes.keys.sorted(by: Self.order).compactMap { id in
 				routes[id].map { RelaySnapshot.Route(id: id, name: peer(id)?.name ?? "", hops: $0.hops, nextHop: $0.nextHop) }
@@ -959,6 +974,8 @@ struct RelaySnapshot: Sendable, Equatable {
 		let linkAge: Duration?
 	}
 
+	/// The transport's clock when taken; `LinkAction.at` and entry ages relate to it.
+	let now: Duration
 	/// Direct neighbours counted as linked (connected and not silent).
 	let neighbours: [UUID]
 	/// Reachable devices, direct ones included, sorted by UUID.

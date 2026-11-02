@@ -59,7 +59,7 @@ public final class Talk {
 		let timeout: TimerToken
 	}
 
-	@ObservationIgnored private let transport: Transport
+	@ObservationIgnored let transport: Transport
 	@ObservationIgnored private let timers: any Timers
 	@ObservationIgnored private let offerTimeout: Duration
 	@ObservationIgnored private let registry = SubscriberRegistry()
