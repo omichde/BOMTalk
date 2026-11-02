@@ -131,7 +131,9 @@ stops accepting that kind. Several subscribers share one decoded value.
 
 ## Behaviour notes
 
-- Peers only connect if both app id and protocol version match; others are never listed.
+- Peers only connect if app id, protocol version and BOMTalk's own protocol version match; others
+  are never listed. This release speaks BOMTalk protocol 3 (relay); v2 devices and this one never
+  see each other, so update all devices of an installation together.
 - At most 8 peers including this device (7 remote), further peers are ignored until a slot frees up.
 - Always encrypted, always reliable.
 - Payloads are binary property lists, lzfse compressed, sent in chunks of up to 64 KB;

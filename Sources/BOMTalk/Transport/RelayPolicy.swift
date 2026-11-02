@@ -8,9 +8,6 @@ import Foundation
 /// Relay rules: hello timing, expiry, hop limit, buffer limits, link policy. See `RelayTransport`.
 enum RelayPolicy {
 
-	/// Advertised in discovery and invitations; devices of another generation never connect.
-	/// 3: the first relay build (BOMTalk v2 had none).
-	static let generation = 3
 	/// Hops a frame may travel, also the maximum route length. Bridge merges stretch the diameter.
 	static let hopLimit: UInt8 = 16
 	/// Periodic hello, ± `helloJitter`.

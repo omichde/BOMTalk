@@ -39,7 +39,7 @@ import Testing
 
 	@Test func invitationContextMismatch() {
 		let uuid = UUID()
-		let data = InvitationContext(appID: appID, version: 1, uuid: uuid).encoded()
+		let data = InvitationContext(appID: appID, appVersion: 1, uuid: uuid).encoded()
 		#expect(InvitationContext.decode(data, appID: appID, protocolVersion: 1) == uuid)
 		#expect(InvitationContext.decode(data, appID: "other.app", protocolVersion: 1) == nil)
 		#expect(InvitationContext.decode(data, appID: appID, protocolVersion: 2) == nil)

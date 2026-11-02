@@ -7,7 +7,7 @@ import Foundation
 import os
 
 /// Transport over a `LinkRadio`: advertises and browses at the same time (mesh), filters by app id,
-/// protocol version and relay generation, connects automatically and reconnects with backoff.
+/// app protocol version and BOMTalk version (`BOMTalkProtocol`), connects automatically and reconnects with backoff.
 ///
 /// Radio-agnostic: the per-peer state machine lives in `MPCPeerMachine`, all MultipeerConnectivity
 /// objects in the radio (`MPCRadio` in production, see `MPCTransport`). Timers are injected, so the
@@ -29,7 +29,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	let radio: Radio
 	private let appID: String
 	private let protocolVersion: Int
-	private let generation: Int
+	private let bomtalkVersion: Int
 	private let invitationContext: Data?
 	private let timers: any Timers
 	private let logger = Logger.bomtalk("transport")
@@ -50,13 +50,13 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	/// Starts the radio again after a reset; set during the pause.
 	private var radioResume: TimerToken?
 
-	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers, generation: Int = RelayPolicy.generation) {
+	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers, bomtalkVersion: Int = BOMTalkProtocol.version) {
 		self.radio = radio
 		self.appID = appID
 		self.protocolVersion = protocolVersion
-		self.generation = generation
+		self.bomtalkVersion = bomtalkVersion
 		self.timers = timers
-		invitationContext = InvitationContext(appID: appID, version: protocolVersion, uuid: localID, generation: generation).encoded()
+		invitationContext = InvitationContext(appID: appID, appVersion: protocolVersion, bomtalkVersion: bomtalkVersion, uuid: localID).encoded()
 		machine = MPCPeerMachine(localID: localID, maxPeers: maxPeers)
 		localPeer = TransportPeer(id: localID, name: displayName, info: [:])
 		radio.onEvent = { [weak self] event in
@@ -141,7 +141,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 			if isBlocked && !wasBlocked {
 				// invisible first (no reconnect), then drop whatever link there is
 				perform(machine.lost(handle))
-				if let id = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion, generation: generation)?.id {
+				if let id = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion, bomtalkVersion: bomtalkVersion)?.id {
 					perform(machine.disconnect(id))
 				}
 			} else if wasBlocked && !isBlocked {
@@ -169,7 +169,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 			perform(machine.lost(handle))
 		case let .invitation(handle, context, reply):
 			guard !blockedNames.contains(radio.displayName(of: handle)) else { return reply(false) }
-			guard let id = InvitationContext.decode(context, appID: appID, protocolVersion: protocolVersion, generation: generation) else {
+			guard let id = InvitationContext.decode(context, appID: appID, protocolVersion: protocolVersion, bomtalkVersion: bomtalkVersion) else {
 				return reply(false)
 			}
 			let (accept, actions) = machine.invitation(from: handle, id: id, name: radio.displayName(of: handle))
@@ -185,7 +185,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	}
 
 	private func found(_ handle: Radio.Handle, info: [String: String]?) {
-		guard let (id, hostInfo) = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion, generation: generation) else { return }
+		guard let (id, hostInfo) = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion, bomtalkVersion: bomtalkVersion) else { return }
 		guard id != localPeer.id else {
 			if handle != radio.localHandle {
 				logger.warning("peer \(self.radio.displayName(of: handle), privacy: .public) has our own UUID (cloned device?)")
@@ -260,6 +260,6 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	}
 
 	private var discoveryInfo: [String: String] {
-		DiscoveryInfo.encode(appID: appID, protocolVersion: protocolVersion, generation: generation, uuid: localPeer.id, info: localPeer.info)
+		DiscoveryInfo.encode(appID: appID, protocolVersion: protocolVersion, bomtalkVersion: bomtalkVersion, uuid: localPeer.id, info: localPeer.info)
 	}
 }

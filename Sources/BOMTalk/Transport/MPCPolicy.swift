@@ -10,12 +10,11 @@ import os
 enum DiscoveryInfo {
 
 	static let appKey = "_a"
+	/// `"<BOMTalk version>:<app version>"`, see `BOMTalkProtocol`. Both must match exactly. v2 builds
+	/// advertise the bare app version and compare it exactly, so v2 and later builds ignore each other.
 	static let versionKey = "_v"
 	static let uuidKey = "_u"
-	/// Relay generation (`RelayPolicy.generation`): builds of another generation never see each other.
-	/// Builds before the relay (v2) don't send it and are ignored.
-	static let generationKey = "_g"
-	static let reservedKeys: Set<String> = [appKey, versionKey, uuidKey, generationKey]
+	static let reservedKeys: Set<String> = [appKey, versionKey, uuidKey]
 
 	/// Bonjour TXT record limits: 255 bytes per `key=value`, about 400 bytes in total.
 	static let maxPairBytes = 255
@@ -25,8 +24,8 @@ enum DiscoveryInfo {
 
 	/// Reserved keys always win. Invalid host pairs are dropped; if the host info doesn't fit, only the
 	/// reserved keys are advertised (connected peers still get the info via Talk's info frame).
-	static func encode(appID: String, protocolVersion: Int, generation: Int = RelayPolicy.generation, uuid: UUID, info: [String: String]) -> [String: String] {
-		let reserved = [appKey: appID, versionKey: String(protocolVersion), uuidKey: uuid.uuidString, generationKey: String(generation)]
+	static func encode(appID: String, protocolVersion: Int, bomtalkVersion: Int = BOMTalkProtocol.version, uuid: UUID, info: [String: String]) -> [String: String] {
+		let reserved = [appKey: appID, versionKey: version(bomtalk: bomtalkVersion, app: protocolVersion), uuidKey: uuid.uuidString]
 		var result = reserved
 		for (key, value) in info {
 			guard !reservedKeys.contains(key), isValidKey(key), pairBytes(key, value) <= maxPairBytes else {
@@ -35,16 +34,26 @@ enum DiscoveryInfo {
 			}
 			result[key] = value
 		}
-		guard result.reduce(0, { $0 + 1 + pairBytes($1.key, $1.value) }) <= maxTotalBytes else {
+		guard totalBytes(result) <= maxTotalBytes else {
 			logger.error("discovery info exceeds \(maxTotalBytes) bytes, advertising without host info")
 			return reserved
 		}
 		return result
 	}
 
+	/// The value of `versionKey`.
+	static func version(bomtalk: Int, app: Int) -> String {
+		"\(bomtalk):\(app)"
+	}
+
 	/// Non-empty printable ASCII without `=`.
 	static func isValidKey(_ key: String) -> Bool {
 		!key.isEmpty && key.unicodeScalars.allSatisfy { (0x20...0x7E).contains($0.value) && $0 != "=" }
+	}
+
+	/// Size of the TXT record: `key=value` pairs, each with its length byte.
+	static func totalBytes(_ info: [String: String]) -> Int {
+		info.reduce(0) { $0 + 1 + pairBytes($1.key, $1.value) }
 	}
 
 	/// Size of `key=value` in the TXT record (without its length byte).
@@ -53,36 +62,37 @@ enum DiscoveryInfo {
 	}
 
 	/// Returns the peer's UUID and host info, or nil for foreign / incompatible / invalid peers.
-	static func decode(_ info: [String: String]?, appID: String, protocolVersion: Int, generation: Int = RelayPolicy.generation) -> (id: UUID, info: [String: String])? {
+	static func decode(_ info: [String: String]?, appID: String, protocolVersion: Int, bomtalkVersion: Int = BOMTalkProtocol.version) -> (id: UUID, info: [String: String])? {
 		guard let info,
 			info[appKey] == appID,
-			info[versionKey] == String(protocolVersion),
-			info[generationKey] == String(generation),
+			info[versionKey] == version(bomtalk: bomtalkVersion, app: protocolVersion),
 			let id = info[uuidKey].flatMap(UUID.init(uuidString:))
 		else { return nil }
 		return (id, info.filter { !reservedKeys.contains($0.key) })
 	}
 }
 
-/// Sent as invitation context, checked by the invitee before accepting. Contexts without a
-/// `generation` (builds before the relay) fail to decode and are declined.
+/// Sent as invitation context, checked by the invitee before accepting: app id, app version and
+/// BOMTalk version (`BOMTalkProtocol`) must match. v2 contexts (`appID`, `version`, `uuid`) have
+/// neither `appVersion` nor `bomtalkVersion` and fail to decode; v2 in turn fails to decode this one
+/// (no `version`) and declines.
 struct InvitationContext: Codable, Equatable {
 	let appID: String
-	let version: Int
+	let appVersion: Int
+	var bomtalkVersion = BOMTalkProtocol.version
 	let uuid: UUID
-	var generation = RelayPolicy.generation
 
 	func encoded() -> Data? {
 		try? JSONEncoder().encode(self)
 	}
 
-	/// Returns the inviter's UUID if the context matches this app id, version and relay generation.
-	static func decode(_ data: Data?, appID: String, protocolVersion: Int, generation: Int = RelayPolicy.generation) -> UUID? {
+	/// Returns the inviter's UUID if the context matches this app id, app version and BOMTalk version.
+	static func decode(_ data: Data?, appID: String, protocolVersion: Int, bomtalkVersion: Int = BOMTalkProtocol.version) -> UUID? {
 		guard let data,
 			let context = try? JSONDecoder().decode(InvitationContext.self, from: data),
 			context.appID == appID,
-			context.version == protocolVersion,
-			context.generation == generation
+			context.appVersion == protocolVersion,
+			context.bomtalkVersion == bomtalkVersion
 		else { return nil }
 		return context.uuid
 	}

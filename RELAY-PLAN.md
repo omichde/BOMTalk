@@ -469,10 +469,11 @@ of the day failed on pending Local Network prompts, see "Status").
    for convergence, multi-hop transfer and relay loss pass.
    **Done:** `RelayTransport` (decorator over `LinkTransport`, wired in `Talk`'s public init),
    `RelayEnvelope` / `RelayHello` (`RelayFrame.swift`), `RelayPolicy`, internal `RelaySnapshot`;
-   discovery / invitation key `_g` = relay generation 3 (v2 builds never connect). Sim: transport
-   contract checker on every device, per-link bandwidth, per-device generation, sparse random graphs;
+   BOMTalk protocol version 3 in discovery and invitations (v2 builds never connect; first as a
+   separate key `_g`, now part of `_v`, see "Protocol version"). Sim: transport
+   contract checker on every device, per-link bandwidth, per-device version, sparse random graphs;
    `RelayTests` (line, broadcast, ring, split / rejoin, 30 random, blackhole, hop limit, buffer,
-   determinism, mixed generation). Decisions that differ from the text above:
+   determinism, mixed versions). Decisions that differ from the text above:
    - **No message id / dedupe cache in the envelope** (37 bytes: magic, version, type, hop limit,
      origin, destination). Hellos are deduped by their `(epoch, seq)` version per origin (epoch set at
      each start, so a restarted device with seq reset wins); data is unicast along routes and needs no
@@ -529,7 +530,7 @@ of the day failed on pending Local Network prompts, see "Status").
    - **Stalled links** (silent 15 s) are disconnected in the lower transport; reconnect follows with
      backoff on a fresh session.
    - **Hop limit 16**; the ring test is back to 10 devices, the hop limit test uses a line of 18.
-   - **Relay generation stays 3**: phase 3 never shipped, so no build without `unlink` exists.
+   - **BOMTalk protocol version stays 3**: phase 3 never shipped, so no build without `unlink` exists.
    - Performance (debug, simulator): hellos are deduplicated on their version before decoding, unchanged
      periodic hellos only renew the entry, the sweep refreshes only when time changed something.
    - Known limits: a sender's queue in MPC is invisible, so with a queue longer than 60 s behind an
@@ -545,7 +546,7 @@ of the day failed on pending Local Network prompts, see "Status").
      success once data was handed off, even if the receiver never got it, and a sender could not see
      its own MPC queue (busy-link drops, an `unlink` queued behind > 60 s of data).
    - **Design** (`FlowControl`, `Frame.ack`, `Scheduler`, `Reassembler`):
-     - `Frame.ack(transferID, receivedBytes)` (type 6; relay generation 3 already keeps v2 builds out).
+     - `Frame.ack(transferID, receivedBytes)` (type 6; BOMTalk protocol version 3 already keeps v2 builds out).
        `receivedBytes` is the **contiguous prefix** the receiver has, not the unique byte count: a chunk
        lost at a dead relay (no retransmission) freezes the acks, the window fills, both ends time out.
        With unique counts the transfer crept on with a hole it could never fill (seen in the
@@ -609,6 +610,32 @@ runs and real devices are still to do.
   shown; recheck with the batched drain.
 - Open: fresh `MCPeerID` per start vs. Apple's advice to reuse an archived one; no evidence against it
   so far (the suspected degradation was the permission prompt).
+
+## Protocol version (2026-11-02)
+
+v3 first added a separate discovery key `_g=3` (and `generation` in the invitation context). v2 only
+checks `_a`, `_v == String(protocolVersion)` and `_u`, so it still listed v3 devices: they showed up in
+v2's `peers` as `.discovered` with `"_g": "3"` in `peer.info`, and v2 invited them forever (v3 declined).
+
+- **One constant**, `BOMTalkProtocol.version = 3` (`Wire/BOMTalkProtocol.swift`): BOMTalk's own wire
+  protocol, separate from the host app's `protocolVersion`. Bump on any wire-incompatible change;
+  unreleased formats change without a bump (the lighter hello below kept 3). `Frame.version` and
+  `RelayEnvelope.version` stay per-format bytes for the parsers (1); compatibility is decided only by
+  `BOMTalkProtocol.version`, documented there.
+- **Discovery**: `_v = "<BOMTalk version>:<app version>"`, e.g. `"3:1"`; `DiscoveryInfo.decode`
+  requires both to match exactly. v2's exact `_v == "1"` fails on `"3:1"`, so v2 ignores v3 cleanly
+  (not listed, never invited), and v3 ignores v2 (`"1"` has no BOMTalk part). `_g` is gone: the reserved
+  keys now take `_a`, `_v`, `_u` (≈ 70 bytes with a 20 character app id, 329 left for host info).
+- **Invitation context**: `{appID, appVersion, bomtalkVersion, uuid}`. A v2 context (`appID`, `version`,
+  `uuid`) fails to decode (missing keys), so does a context of another BOMTalk or app version. The app
+  version is under `appVersion` instead of v2's `version` on purpose: v2's decoder would ignore the
+  extra keys and accept a v3 context with a matching `version`; now it fails to decode and declines.
+  Neither side lists the other, so neither invites; this is only the defensive second line.
+- `LinkTransport(…, bomtalkVersion:)` and `SimConfig.bomtalkVersions` / `appVersions` replace the
+  `generation` parameters. Tests: `protocolVersionFiltersDiscoveryAndInvitations`,
+  `v2AndV3IgnoreEachOther` (v2's formats reproduced literally, v2's decode rules copied literally from
+  `master`), `discoveryInfoBudget`, `mixedVersions` (another BOMTalk or app version: never listed,
+  never invited, lists nobody).
 
 ## Open questions
 

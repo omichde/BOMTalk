@@ -35,21 +35,86 @@ import Testing
 		#expect(RelayHello.Version(epoch: 2, seq: 1) < RelayHello.Version(epoch: 2, seq: 2))
 	}
 
-	@Test func generationFiltersDiscoveryAndInvitations() {
+	@Test func protocolVersionFiltersDiscoveryAndInvitations() {
 		let uuid = UUID()
-		let info = DiscoveryInfo.encode(appID: "app", protocolVersion: 1, uuid: uuid, info: [:])
-		#expect(info[DiscoveryInfo.generationKey] == String(RelayPolicy.generation))
+		let info = DiscoveryInfo.encode(appID: "app", protocolVersion: 1, uuid: uuid, info: ["role": "kiosk"])
+		#expect(info[DiscoveryInfo.versionKey] == "\(BOMTalkProtocol.version):1")
+		#expect(info.keys.sorted() == ["_a", "_u", "_v", "role"])
 		#expect(DiscoveryInfo.decode(info, appID: "app", protocolVersion: 1)?.id == uuid)
-		#expect(DiscoveryInfo.decode(info, appID: "app", protocolVersion: 1, generation: 4) == nil)
-		var legacy = info	// a build before the relay
-		legacy[DiscoveryInfo.generationKey] = nil
-		#expect(DiscoveryInfo.decode(legacy, appID: "app", protocolVersion: 1) == nil)
+		#expect(DiscoveryInfo.decode(info, appID: "app", protocolVersion: 1)?.info == ["role": "kiosk"])
+		#expect(DiscoveryInfo.decode(info, appID: "app", protocolVersion: 2) == nil)
+		#expect(DiscoveryInfo.decode(info, appID: "app", protocolVersion: 1, bomtalkVersion: BOMTalkProtocol.version + 1) == nil)
+		var swapped = info	// app version 3 of BOMTalk 1 is not BOMTalk 3 of app version 1
+		swapped[DiscoveryInfo.versionKey] = "1:\(BOMTalkProtocol.version)"
+		#expect(DiscoveryInfo.decode(swapped, appID: "app", protocolVersion: 1) == nil)
 
-		let context = InvitationContext(appID: "app", version: 1, uuid: uuid).encoded()
+		let context = InvitationContext(appID: "app", appVersion: 1, uuid: uuid).encoded()
 		#expect(InvitationContext.decode(context, appID: "app", protocolVersion: 1) == uuid)
-		#expect(InvitationContext.decode(context, appID: "app", protocolVersion: 1, generation: 4) == nil)
-		let legacyContext = Data(#"{"appID":"app","version":1,"uuid":"\#(uuid.uuidString)"}"#.utf8)
-		#expect(InvitationContext.decode(legacyContext, appID: "app", protocolVersion: 1) == nil)
+		#expect(InvitationContext.decode(context, appID: "app", protocolVersion: 2) == nil)
+		#expect(InvitationContext.decode(context, appID: "other", protocolVersion: 1) == nil)
+		#expect(InvitationContext.decode(context, appID: "app", protocolVersion: 1, bomtalkVersion: BOMTalkProtocol.version + 1) == nil)
+	}
+
+	/// v2 (branch `master`) advertises `_a`, `_v` = bare app version, `_u`, and invites with
+	/// `{"appID", "version", "uuid"}`: this build ignores both. v2's own checks, copied literally
+	/// below, ignore this build's discovery info and decline its invitations.
+	@Test func v2AndV3IgnoreEachOther() {
+		let uuid = UUID()
+		// as v2's `DiscoveryInfo.encode` / `InvitationContext.encoded` produce them
+		let v2Info = ["_a": "app", "_v": "1", "_u": uuid.uuidString, "role": "kiosk"]
+		let v2Context = Data(#"{"appID":"app","version":1,"uuid":"\#(uuid.uuidString)"}"#.utf8)
+		#expect(DiscoveryInfo.decode(v2Info, appID: "app", protocolVersion: 1) == nil)
+		#expect(InvitationContext.decode(v2Context, appID: "app", protocolVersion: 1) == nil)
+
+		// v2's decode rules
+		func v2Decode(_ info: [String: String]?, appID: String, protocolVersion: Int) -> (id: UUID, info: [String: String])? {
+			guard let info,
+				info["_a"] == appID,
+				info["_v"] == String(protocolVersion),
+				let id = info["_u"].flatMap(UUID.init(uuidString:))
+			else { return nil }
+			return (id, info.filter { !["_a", "_v", "_u"].contains($0.key) })
+		}
+		struct V2InvitationContext: Codable {
+			let appID: String
+			let version: Int
+			let uuid: UUID
+
+			static func decode(_ data: Data?, appID: String, protocolVersion: Int) -> UUID? {
+				guard let data,
+					let context = try? JSONDecoder().decode(V2InvitationContext.self, from: data),
+					context.appID == appID,
+					context.version == protocolVersion
+				else { return nil }
+				return context.uuid
+			}
+		}
+		// the copies accept v2's own formats …
+		#expect(v2Decode(v2Info, appID: "app", protocolVersion: 1)?.id == uuid)
+		#expect(V2InvitationContext.decode(v2Context, appID: "app", protocolVersion: 1) == uuid)
+		// … but not this build's, whatever app version v2 runs
+		let v3Info = DiscoveryInfo.encode(appID: "app", protocolVersion: 1, uuid: uuid, info: ["role": "kiosk"])
+		let v3Context = InvitationContext(appID: "app", appVersion: 1, uuid: uuid).encoded()
+		for version in [1, 3, BOMTalkProtocol.version] {
+			#expect(v2Decode(v3Info, appID: "app", protocolVersion: version) == nil)
+			#expect(V2InvitationContext.decode(v3Context, appID: "app", protocolVersion: version) == nil)
+		}
+	}
+
+	/// The reserved keys leave the documented ~300 bytes of the 400 byte TXT record for host info.
+	@Test func discoveryInfoBudget() throws {
+		let appID = "de.werk01.exhibition"
+		let reserved = DiscoveryInfo.encode(appID: appID, protocolVersion: 12, uuid: UUID(), info: [:])
+		let reservedBytes = DiscoveryInfo.totalBytes(reserved)
+		#expect(reservedBytes == (1 + 3 + appID.utf8.count) + (1 + 3 + 4) + (1 + 3 + 36))
+		let budget = DiscoveryInfo.maxTotalBytes - reservedBytes
+		#expect(budget >= 300)
+		// two pairs (at most 255 bytes each) filling the budget exactly: length byte, "k=", value
+		let first = String(repeating: "x", count: 200)
+		let fits = ["k": first, "l": String(repeating: "x", count: budget - (3 + 200) - 3)]
+		#expect(DiscoveryInfo.encode(appID: appID, protocolVersion: 12, uuid: UUID(), info: fits).count == 5)
+		let tooLarge = ["k": first, "l": String(repeating: "x", count: budget - (3 + 200) - 2)]
+		#expect(DiscoveryInfo.encode(appID: appID, protocolVersion: 12, uuid: UUID(), info: tooLarge).count == 3)
 	}
 
 	// MARK: - Scenarios
@@ -346,10 +411,14 @@ import Testing
 		#expect(first.1 == second.1)
 	}
 
-	/// A device of another relay generation is never listed, and lists nobody.
-	@Test func mixedGeneration() async {
+	/// Devices of another BOMTalk version or app version are never listed, and list nobody.
+	@Test(arguments: [false, true]) func mixedVersions(appVersion: Bool) async {
 		var config = SimConfig()
-		config.generations = [4: RelayPolicy.generation + 1]
+		if appVersion {
+			config.appVersions = [4: 2]
+		} else {
+			config.bomtalkVersions = [4: BOMTalkProtocol.version + 1]
+		}
 		let net = SimNetwork(count: 5, seed: 20, config: config, wrap: SimNetwork.relay)
 		net.fullMesh()
 		net.startAll()
@@ -358,6 +427,7 @@ import Testing
 		#expect(!net.log.contains { $0.contains("d4") })
 		#expect(net[4].peers.isEmpty)
 		#expect(net.sessionPeers(4).isEmpty)
+		#expect(net.invitations(4, 0) == 0)
 		#expect(net.contractViolations.isEmpty)
 	}
 }

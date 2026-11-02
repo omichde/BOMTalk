@@ -22,8 +22,10 @@ struct SimConfig {
 	var maxPeers = MPCPolicy.maxRemotePeers
 	/// Bytes per second per link and direction; data queues behind earlier data. Nil: unlimited.
 	var bandwidth: Int?
-	/// Relay generation per device index (`RelayPolicy.generation` for the others).
-	var generations: [Int: Int] = [:]
+	/// BOMTalk version per device index (`BOMTalkProtocol.version` for the others).
+	var bomtalkVersions: [Int: Int] = [:]
+	/// App protocol version per device index (1 for the others).
+	var appVersions: [Int: Int] = [:]
 	/// Time step of `run(for:)` / `run(until:)`.
 	var step: Duration = .milliseconds(10)
 	/// Main actor yields per step while any device has a `Talk`, so its tasks can run (otherwise one).
@@ -227,7 +229,7 @@ final class SimNetwork {
 		for index in 0 ..< count {
 			let radio = SimRadio(index: index, network: self)
 			let id = randomUUID()
-			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: 1, timers: timers, maxPeers: config.maxPeers, generation: config.generations[index] ?? RelayPolicy.generation)
+			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: config.appVersions[index] ?? 1, timers: timers, maxPeers: config.maxPeers, bomtalkVersion: config.bomtalkVersions[index] ?? BOMTalkProtocol.version)
 			let transport = wrap?(link, timers) ?? link
 			let talk = talk ? Talk(transport: transport, timers: timers, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout, window: config.window, peerWindow: config.peerWindow) : nil
 			devices.append(SimDevice(index: index, radio: radio, link: link, transport: transport, talk: talk, network: self))
