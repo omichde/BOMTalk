@@ -2,7 +2,8 @@
 
 Branch: `feature/relay`. Status: phase 1 (foundations), phase 2 (debug control layer + rig script,
 not yet run on simulators), phase 3 (RelayTransport), phase 4 (link policy) and phase 4b (flow control)
-done; `-autostart` in the Sample.
+done; `-autostart` in the Sample. First simulator rig runs analysed and their failure modes fixed (see
+"Findings from simulator rig runs").
 
 ## Problem
 
@@ -203,6 +204,81 @@ optional later add-on for interactive use.
 - Unsigned simulator builds cannot write the keychain (`-34018`), identity falls back to UserDefaults.
 - `simctl launch` occasionally blocks; launch in the background and poll `launchctl list`.
 
+## Findings from simulator rig runs (2026-11-02, 8 iOS simulators)
+
+Soak runs (`Sample/Rig/out/20261102-*`, a random instance `dark` = `Talk.stop`, start again after
+25 s, every 60 s). Attempts counted from the `peer` events (`connecting → discovered` = an attempt to
+an unreachable device failed), stalls from `link.action stalled`.
+
+| run | cap | result | failed attempts | … at the 40 s watchdog | … with an end that had gone dark before | stalled | … within 30 s of a restart | … link age ≤ 17 s |
+|---|---|---|---|---|---|---|---|---|
+| `040652` | 3 | partitioned {0–4}, {5, 6}, {7} | 126 | 28 | 110 | 20 | 2 | 9 |
+| `034652` (5 MB blobs) | 3 | partitioned {0, 4} for minutes | 149 | 28 | 147 | 54 | 10 | 35 |
+| `042132` | 7 | pass | 10 | 0 | 10 | 20 | 4 | 11 |
+
+- **Attempts with a restarted device hang.** Nearly all failed attempts involve an instance that had
+  gone dark before; in `040652` 104 of 126 are on rig-5 / 6 / 7 (three of the four that went dark).
+  After its second restart rig-7 had its attempts to rig-3, rig-0 and rig-6 end only at the watchdog
+  (39–41 s, MPC never reported the 30 s invitation timeout), one to rig-1 after 69 s, and spent about
+  two minutes with all three slots (2 + 1) held by pending attempts and no neighbour, declining
+  everyone who invited it. Cause: `MPCIdentity` archived one `MCPeerID` and `MPCRadio` reused it on
+  every start, also within the process; the former neighbours' MPC still held the old session for
+  that peer id (they noticed the loss only via the 15 s stall detector, 42–51 s after the stop) and
+  invitations between them hung until MPC cleaned up (`GCKSession … Timed out, enforcing clean up`,
+  as in the manual iPhone 16e test above). With cap 7 there are enough slots for the hanging
+  attempts, so the same MPC behaviour stayed harmless.
+- **Stalled disconnects are mostly not about darks** (16 of 20, 44 of 54, 16 of 20). About half are
+  links that never carried a single frame (age 15–17 s: one end reported `connected`, the other never
+  did — half-open connects); many others are the far end of such a link, cut about 15 s after the
+  first end cancelled (ages 30–31 s, paired with a 15–16 s one): `cancelConnectPeer` does not reach
+  the other side. A few long-lived links stalled in the blob run (90–537 s), probably behind blob data
+  in MPC's queue.
+- The rig itself: the final check came right after the run (rig-7 healed some seconds later), and
+  the delivery rate counted the pings to a dark instance as lost. The Sample's `neighbour` event
+  wrote its up / down flag into the `up` (uptime) field, so link losses were not visible in the logs.
+
+**Fix** (each in code where it applies; sim scenarios in `RestartTests`):
+
+- **Fresh `MCPeerID` per start** (`MPCRadio.start`, same display name; `MPCIdentity` keeps the UUID
+  only and drops an archived peer id). Devices were identified by the UUID in the discovery info all
+  along and the machine tracks several handles per device; a restarted device is simply a new peer
+  on the radio, and a remote still holding the old link takes the new invitation as "remote relaunched".
+  The simultaneous-invitation tie-break now only declines if our pending invitation went to the
+  handle inviting us (one to the outdated handle would never be answered).
+- **Pending attempts can no longer starve a device** (`MPCPeerMachine`, only with a link policy):
+  own pending invitations hold at most all slots but one; an invitation that finds no free slot
+  takes the slot of our oldest pending invitation (withdrawn, counts as failed). An incoming
+  invitation proves the inviter reaches us; ours may hang. Connected links are never touched, so the
+  no-flapping rules are unaffected.
+- **Shorter timeouts**: invitation 15 s (was 30), watchdog 20 s (was 40). Successful connects took
+  1–3 s in the rig.
+- **Backoff reset by data, not by `connected`**: a half-open link backs off like a failed attempt
+  instead of retrying after 1 s every time. `fillSlots` prefers bridge candidates, then peers with
+  fewer failures in a row.
+- **Simulator failure modes** (`SimConfig`, off by default): `freshHandles` (default on, like
+  `MPCRadio`; off = one handle for all runs), `lossDetection` (remotes notice a stopped device late,
+  their side of the link stays up), `staleSession` (invitations between a remote and a handle it had
+  a link or pending invitation with hang after that device stopped), `hangProbability` (invitation
+  never answered, not even by its timeout), `halfOpenProbability` (invitee connected, inviter not).
+- **Regression** (`RestartTests.darkEveryMinuteAtCapThree`: cap 3, 8 devices, a random one dark for
+  20 s every 60 s for 10 minutes, losses noticed after 45 s, stale sessions 120 s, 5 % hanging
+  invitations, 5 % half-open links): before the fix, with one handle for all runs (the old
+  `MPCRadio`), devices went without any neighbour for 40–49 s and had every slot held by pending
+  attempts for 35–38 s (5 of the seeds 50–55); after it, ≤ 11 s and ≤ 1 s, with fresh handles ≤ 5 s
+  and 0 s; all reach all again within seconds of the last restart. `hangingInvitationsAtCapTwo`
+  (fresh handles, 30 % hanging, 10 % half open, cap 2): before 86–170 s without a neighbour, up to
+  75 s starving, one seed not converged after 3 minutes; after ≤ 5 s and 0 s, converged in 7–43 s. Without the preemption the cap 2 scenario fails again; without the
+  shorter timeouts one seed converges too late.
+- **Rig**: the soak waits up to `--soak-heal-timeout` (120 s) after the last restart and reports
+  `healedAfterSeconds`; the delivery check uses the rate without pings that could not arrive
+  (missing pings, now listed per origin by the Sample, sent while the receiver was dark or within
+  `--restart-grace` (30 s) after a restart of either end), the raw rate is reported next to it.
+  Sample: `neighbour` events carry `linked`.
+- Remaining: real MPC behaviour is only modelled; a Bonjour record of the old peer id re-reported
+  after the new one would make the machine invite the outdated handle until the browser loses it
+  (not seen, but possible). Half-open links still cost the invitee a slot for 15 s. Long stalls
+  behind blob data (blob run) are not addressed here.
+
 ## Phases
 
 1. **Foundations** – injectable clock in `MPCPeerMachine` / `MPCTransport`; `LoopbackHub` with
@@ -364,4 +440,5 @@ optional later add-on for interactive use.
 - Envelope vs. smaller `Frame.maxChunkPayload`.
 - Expose relayed peers differently in `Talk` (`hops`, `.relayed`)?
 - Per-hop throughput for large blobs over several hops – acceptable for the exhibition use cases?
-- Is the iPhone 16e failure a simulator artefact?
+- Is the iPhone 16e failure a simulator artefact? Probably the stale-session effect of a reused
+  `MCPeerID` (see "Findings from simulator rig runs"); recheck with the fresh peer id per start.
