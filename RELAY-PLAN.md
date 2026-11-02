@@ -3,7 +3,8 @@
 Branch: `feature/relay`. Status: phase 1 (foundations), phase 2 (debug control layer + rig script,
 not yet run on simulators), phase 3 (RelayTransport), phase 4 (link policy) and phase 4b (flow control)
 done; `-autostart` in the Sample. Simulator rig runs analysed and their failure modes fixed (see
-"Findings from simulator rig runs" and its second round: radio reset, sends off the main actor).
+"Findings from simulator rig runs" and its second and third rounds: radio reset, sends off the main
+actor, reset while linked for a cut-off minority).
 
 ## Problem
 
@@ -351,6 +352,83 @@ Runs `Sample/Rig/out/20261102-051125` (converge, 8 simulators, cap 7), `…-0525
   The real cause of the frozen instances is unproven; the next blob soak's `main.stall` / `main.lag`
   events decide whether it was the main actor or the process.
 
+## Findings from simulator rig runs, third round (2026-11-02, build `3087dc9`)
+
+Valid runs of the radio reset build: `Sample/Rig/out/20261102-10*` (8 iOS simulators; the earlier runs
+of the day failed on pending Local Network prompts, see "Status").
+
+- **Heal at cap 2 (`…-102214`): a wedged pair never rejoined.** The busiest relay rig-1 (links to rig-2,
+  rig-3 and, half open, rig-4) went dark for 25 s. rig-3 and rig-4 were left linked only to each other.
+  Of the 36 attempts between the pair and the other six after the dark, 29 ended only at the watchdog
+  or the invitation timeout (14–21 s) and 7 were quick declines from full devices (1–8 s); nothing
+  connected. Most hangs had both sides `connecting` at once: an accepted invitation that never
+  completed. The others connected among themselves (rig-1 ↔ rig-2 10 s after the restart), the final
+  topology was the line rig-1–2–0–5–6–7 whose ends kept inviting the pair (and vice versa) every
+  20–25 s for 2.5 minutes, each attempt hanging. Not slots, suppression or the `full` flag: every end
+  had its bridge slot pending on exactly these attempts. It is the wedge of the second round (abrupt
+  loss of rig-1, the session can no longer complete new connections, invitations and declines still
+  pass), on both members of the pair, and the radio reset never fired because each still had a
+  working link to the other ("a device that is wedged while it still has one working link never
+  resets"). With the rule below, rig-3 would have reset at 61 s after the dark (slow failures with
+  rig-7, rig-5, rig-1 at 28, 42 and 61 s, while it saw 5–6 unreachable devices against a partition
+  of 2), rig-4 at 75 s.
+- **Soak at cap 3 (`…-103138`): adjusted delivery 0.7575, healed 74 s after the last restart** (the
+  previous build `b24828a`: 0.8065, 34 s, one run each). Compared with that run: stalled disconnects
+  36 vs 21, of links older than 17 s (so not half open) 21 vs 4; expired map entries 298 vs 199; failed
+  attempts 175 vs 120; receive failures 422 vs 207. 31 of the 36 stalls fall after rig-3's dark at
+  540 s (both directions of long-lived links between devices that were not dark went silent at once,
+  e.g. rig-2's links to rig-5 and rig-7 at 98–103 s age, rig-1's two links 15 s after rig-1 cancelled
+  a connect). 7 radio resets (rig-1 3×, rig-2 2×, rig-5, rig-7), all by the no-link rule, each on a
+  device without a neighbour whose attempts hung; each connected again 1–8 s after its reset, so the
+  resets ended isolations rather than causing them. The young-link-death rule contributed failures
+  but no reset of a device that had a working link. The **10 s main actor stall** of rig-2
+  (`main.stall` at 591.5 s, `main.lag.spike` 10016 ms ending at 599.1 s together with `radio.reset`)
+  covers the end of its isolation: three attempts pending, a watchdog due at 589.7 s fired 9.4 s late,
+  then the reset; rig-0 stalled 2.2 s exactly when it went dark (600.0 s, `Talk.stop`) and 1.3 s when
+  it started again. The calls on the main actor there are MPC's `cancelConnectPeer`,
+  `MCSession.disconnect()` and the radio start: MPC blocks in them, most likely behind a send blocked
+  in an `Outbox` or a wedged session. **Blob throughput** with the `Outbox`: 1.39 MB/s (`…-101052`) and
+  1.64 MB/s (`…-105513`) on the same build, 1.63–1.64 MB/s before: run-to-run spread (7.2 s vs 6.1 s for
+  10 MB), not a regression.
+- **Rig abort (`…-104849`)**: `simctl terminate` hung for the whole 120 s command timeout at setup.
+
+**Fix:**
+
+- **Reset while linked for a cut-off minority** (`RadioHealth`, `LinkPolicy.outnumbered`). The relay
+  marks its policy `outnumbered` when there are more bridge candidates than devices in its own
+  partition (itself included). `RadioHealth` then also resets with live links: same count (3 slow
+  failures, 2 distinct peers, 60 s) but only over failures with current bridge candidates, at once
+  when outnumbered, otherwise once the split lasted `RadioResetPolicy.isolationLimit` (120 s). Data on
+  an old link no longer clears the failure history while candidates exist (it proves nothing about new
+  links). Same backoff as before. The smaller side goes first because the wedge is most likely there
+  (its members just lost their relay abruptly, the majority connects among itself); the larger side
+  follows only if that does not help (a wedged majority, or a tie), so a healthy majority does not
+  reset for a wedged few. Healthy merges never meet it: no hanging attempts with candidates, and no
+  split lasts 2 minutes.
+- **MPC calls off the main actor** (`MPCRadio.SessionControl`): invitations, cancels and the final
+  `disconnect` of a run go to one serial queue per session, in order; a later run has its own queue,
+  so a blocked teardown does not delay it. **`Outbox`**: frames queue under the lock and one drain
+  hands them to MPC until none is left (one dispatch per burst instead of per frame); a cancelled or
+  disconnected peer's outbox drops what still waits.
+- **Sim**: `SimConfig.wedgeAnswersDeclines` (a wedged session still declines, only accepted invitations
+  hang, as in the heal run). `RadioResetTests.isolatedGroupRejoins`: a line of outsiders, the relay,
+  then the group; the group's sessions wedge, everyone sees everyone, the relay goes dark for 25 s.
+  Without the change none of the 6 cases rejoins (150 s / 300 s limit); with it, measured over 10 seeds
+  each: pair at cap 2 49–76 s after the restart, triple at cap 2 80–128 s, pair at cap 3 21–25 s, triple
+  at cap 3 27–46 s, the outsiders never reset; the group resets member by member (an interior member at
+  cap 2 holds both slots with group links and cannot fail with anyone, it follows once its links went).
+  A group of 4 at cap 2 (4 against 3 during the dark, then a tie) resets after `isolationLimit` and
+  the outnumbered outsiders may reset in vain meanwhile: 184–261 s (groups of 5: 222–285 s). After the
+  merge nothing resets or flaps (120 s). `wedgedApartWhileLinked` covers the rule. All healthy
+  scenarios still have zero resets.
+- **Rig**: terminating an app is best effort and bounded (`Runner.run_bounded`): `--terminate-timeout`
+  (10 s), then the app's pid from `simctl spawn <udid> launchctl list` is killed, and `simctl launch
+  --terminate-running-process` does the rest; a hanging terminate never fails a scenario.
+- Remaining: the larger-side fallback is slow (2 minutes plus failures) and a tie may reset both sides.
+  The cause of the long-lived links that went silent after a dark (soak) is not known; the stall
+  detector and the resets recover from it. Whether MPC tolerates `invitePeer` / `cancelConnectPeer`
+  off the main thread is only known from the API's general thread safety; the next rig runs show it.
+
 ## Phases
 
 1. **Foundations** – injectable clock in `MPCPeerMachine` / `MPCTransport`; `LoopbackHub` with
@@ -515,19 +593,17 @@ Rig results per build (8 iOS 27.2 simulators unless noted, outputs in `Sample/Ri
 |---|---|---|---|---|---|---|
 | phase 2 (`b922764`) | PASS (4) | rig error, then PASS | PASS | PASS 1.64 MB/s | FAIL partitioned | – (no-blob variant PASS) |
 | fresh peer id, no starving (`b24828a`) | FAIL (1 device wedged) | PASS | FAIL (isolated end wedged) | PASS 1.63 MB/s | PASS, healed 34 s | rig error (app silent) |
-| radio reset, async sends (`3087dc9`) | not conclusive, see below | | | | | |
+| radio reset, async sends (`3087dc9`) | PASS | PASS | FAIL (wedged pair, linked) | PASS 1.39 / 1.64 MB/s | FAIL 0.7575, healed 74 s | |
 
-- After about 30 rig runs the simulator environment degraded: **both** `b24828a` and `3087dc9` failed
-  to converge even on a 6-device forced line (invitations hang for the full timeout). Shutting down all
-  simulators, killing `CoreSimulatorService` and erasing the rig simulators helped for exactly one run:
-  `3087dc9` converged in 9 s, but its 10 MB blob ran at 0.22 MB/s with map entries expiring (possible
-  regression from the async `Outbox` sends: no backpressure from `MCSession.send` any more). The next
-  runs failed to converge again for both builds. A Mac reboot (fresh `mDNSResponder`) is needed before
-  further rig runs; until then rig results say more about the host than about BOMTalk.
-- Open: does the fresh `MCPeerID` per start (introduced in `116d99a`) contribute to the host
-  degradation? The degradation only appeared with fresh-id builds; Apple's guidance is to reuse an
-  archived peer id. Check after a reboot: run the rig with fresh ids vs. reused ids, many runs each.
-- Open: blob throughput with the `Outbox` (A/B `b24828a` vs `3087dc9` in a clean environment).
+- Correction: the "host degradation" was not BOMTalk's nor the host's. The rig erased simulators to
+  recover, and an erased simulator shows the Local Network permission prompt again; while it is
+  pending, MPC on that instance finds peers but invitations hang. Runs `…-063500` to `…-080621` are
+  invalid for that reason. With the prompts answered, `3087dc9` ran normally again (`…-10*`, see the
+  third round of findings).
+- Open: blob throughput with the `Outbox` — 1.39 and 1.64 MB/s on the same build, so no regression
+  shown; recheck with the batched drain.
+- Open: fresh `MCPeerID` per start vs. Apple's advice to reuse an archived one; no evidence against it
+  so far (the suspected degradation was the permission prompt).
 
 ## Open questions
 
