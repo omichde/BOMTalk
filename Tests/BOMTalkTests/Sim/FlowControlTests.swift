@@ -91,6 +91,79 @@ import Testing
 		#expect(sent == 1 + 3)
 	}
 
+	/// Several transfers to one peer share `peerWindow`: together never more unacknowledged bytes than
+	/// that, whatever their number; a transfer to another peer has its own budget. Acks free room for
+	/// the others in turn, and all complete.
+	@Test func schedulerPeerWindowAcrossTransfers() async throws {
+		let timers = ManualTimers()
+		var sent: [UUID: Int] = [:]	// chunks per peer
+		let scheduler = Scheduler(timers: timers, timeout: .seconds(30)) { _, peer throws(TalkError) in sent[peer, default: 0] += 1 }
+		let peer = UUID(), other = UUID()
+		let cap = FlowControl.peerWindow / Self.chunk
+		func spin() async {
+			for _ in 0 ..< 50 {
+				await Task.yield()
+			}
+		}
+		var transfers: [Transfer] = []
+		var results: [Finished?] = []
+		for target in [peer, peer, peer, peer, other] {
+			let transfer = Transfer(id: UUID(), peer: target, kind: "blob", direction: .outgoing, totalBytes: 12 * Self.chunk)
+			let index = results.count
+			transfers.append(transfer)
+			results.append(nil)
+			Task {
+				do throws(TalkError) {
+					try await scheduler.transmit(Data(count: 12 * Self.chunk), to: transfer)
+					results[index] = .success
+				} catch {
+					results[index] = .failure(error)
+				}
+			}
+		}
+		await spin()
+		#expect(sent[peer] == cap)	// 4 windows of 8 would be 32
+		#expect(sent[other] == FlowControl.window / Self.chunk)
+		#expect(scheduler.unacknowledgedBytes(for: peer) == FlowControl.peerWindow)
+		#expect(scheduler.unacknowledgedBytes(for: other) == FlowControl.window)
+
+		// the receiver acknowledges whatever was sent, step by step: the cap holds at every point
+		var peakPeer = 0
+		var acknowledged = [Int](repeating: 0, count: transfers.count)
+		for _ in 0 ..< 200 where results.contains(where: { $0 == nil }) {
+			for (index, transfer) in transfers.enumerated() where results[index] == nil {
+				acknowledged[index] = min(acknowledged[index] + 2 * Self.chunk, 12 * Self.chunk)
+				scheduler.acknowledge(transfer.id, receivedBytes: UInt64(acknowledged[index]), from: transfer.peer)
+				await spin()
+				peakPeer = max(peakPeer, scheduler.unacknowledgedBytes(for: peer))
+			}
+		}
+		#expect(peakPeer <= FlowControl.peerWindow)
+		#expect(results.allSatisfy { $0 == .success })
+		#expect(sent[peer] == 4 * 12 && sent[other] == 12)
+	}
+
+	/// Concurrent blobs to one peer over a slow link all complete without timeouts, and relay hellos
+	/// keep flowing meanwhile (nobody expires from anybody's map): 1 MB queue = 5 s on the link.
+	@Test func manyConcurrentTransfersOverSlowLink() async throws {
+		var config = SimConfig()
+		config.bandwidth = 200_000	// slow link: 6 windows of 512 KB would queue 15 s
+		config.chunkTimeout = .seconds(30)
+		let net = SimNetwork(count: 3, seed: 58, config: config, talk: true, wrap: SimNetwork.relay)
+		net.line()
+		net.startAll()
+		let a = try #require(net[0].talk), c = try #require(net[2].talk)
+		#expect(await net.run(until: { a.connectedCount == 2 && c.connectedCount == 2 }, limit: .seconds(60)))
+		let inbox = Inbox<Blob>(c)
+		let peerC = try #require(a.peer(c))
+		let sends = (0 ..< 6).map { _ in Self.send(Blob(data: randomData(512 * 1024)), from: a, to: peerC) }
+		#expect(await net.run(until: { sends.allSatisfy { $0.result != nil } }, limit: .seconds(120)))
+		#expect(sends.allSatisfy { $0.result == .success })
+		#expect(await net.run(until: { inbox.messages.count == 6 }))
+		#expect(net.devices.allSatisfy { $0.relay.snapshot.counters.entriesExpired == 0 })
+		#expect(net.contractViolations.isEmpty)
+	}
+
 	// MARK: - Simulated network
 
 	/// Each link direction is one FIFO: a small frame waits behind a large one sent before it, the
@@ -345,6 +418,7 @@ import Testing
 		var config = SimConfig()
 		config.bandwidth = 1_000_000
 		config.window = window
+		config.peerWindow = window
 		let net = SimNetwork(count: 5, seed: 57, config: config, talk: true, wrap: SimNetwork.relay)
 		net.line()
 		net.startAll()

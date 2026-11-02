@@ -137,7 +137,8 @@ stops accepting that kind. Several subscribers share one decoded value.
 - Payloads are binary property lists, lzfse compressed, sent in chunks of up to 64 KB;
   concurrent transfers are interleaved.
 - Flow control: the receiver acknowledges every 256 KB, the sender keeps at most 512 KB per
-  transfer unacknowledged, so a large transfer never piles up in a link's queue.
+  transfer and 1 MB per peer (all its transfers together) unacknowledged, so transfers never
+  pile up in a link's queue.
   `send` returns once the receiver acknowledged everything (it may still fail to decode the
   message; its `messages` stream reports that).
 - 30 s timeouts for unanswered offers and stalled transfers (incoming: no chunk, outgoing: no

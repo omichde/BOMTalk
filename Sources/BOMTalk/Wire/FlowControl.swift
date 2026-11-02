@@ -12,11 +12,16 @@ import Foundation
 /// Without it the sender handed every chunk to the transport at once and MultipeerConnectivity
 /// buffered it all: tens of seconds of data in one link's queue, with relay hellos waiting behind it
 /// until map entries on the far side expired. The window bounds each transfer's share of every link
-/// queue on its path, relays included.
+/// queue on its path, relays included; `peerWindow` bounds all transfers to one peer together.
 enum FlowControl {
 
 	/// Unacknowledged bytes per outgoing transfer: 8 chunks.
 	static let window = 8 * Frame.maxChunkPayload
+	/// Unacknowledged bytes over all outgoing transfers to one peer: 16 chunks. The window is per
+	/// transfer, so n concurrent transfers would queue n × `window` on one link and push relay hellos
+	/// past their expiry on a slow link; this bounds the link queue whatever the number of transfers.
+	/// Larger than `window`, so one transfer still fills its own window.
+	static let peerWindow = 2 * window
 	/// The receiver acknowledges every this many received bytes (4 chunks) and at completion, so
 	/// a full window always has acknowledgements on the way.
 	static let ackInterval = 4 * Frame.maxChunkPayload

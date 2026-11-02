@@ -18,8 +18,8 @@ import os
 /// ```
 ///
 /// Transfers are flow controlled end to end: the receiver acknowledges received bytes, the sender
-/// keeps a bounded window of unacknowledged bytes in flight (`FlowControl`), so one transfer never
-/// piles up in a link's queue. `send` returns once the receiver acknowledged everything.
+/// keeps a bounded window of unacknowledged bytes in flight (`FlowControl`) per transfer and per
+/// peer, so transfers never pile up in a link's queue. `send` returns once the receiver acknowledged everything.
 ///
 /// Known limitations: Swift task cancellation of `send` is not honoured yet (the transfer runs to
 /// its end). A receiver that accepts an offer only after the sender's offer timeout gets no chunks
@@ -84,7 +84,8 @@ public final class Talk {
 	///   - chunkTimeout: An incoming transfer without a chunk, or an outgoing one without an
 	///     acknowledgement, for this long fails with `.timeout`.
 	///   - window: Unacknowledged bytes per outgoing transfer, `FlowControl.window` (tests only).
-	init(transport: Transport, timers: any Timers = TaskTimers(), offerTimeout: Duration = .seconds(30), chunkTimeout: Duration = .seconds(30), window: Int = FlowControl.window) {
+	///   - peerWindow: Unacknowledged bytes over all outgoing transfers to one peer (tests only).
+	init(transport: Transport, timers: any Timers = TaskTimers(), offerTimeout: Duration = .seconds(30), chunkTimeout: Duration = .seconds(30), window: Int = FlowControl.window, peerWindow: Int = FlowControl.peerWindow) {
 		self.transport = transport
 		self.timers = timers
 		self.offerTimeout = offerTimeout
@@ -93,7 +94,7 @@ public final class Talk {
 		self.me = Peer(id: local.id, name: local.name, state: .connected, info: local.info)
 		self.info = local.info
 		// strong capture is fine: the transport only refers back to `self` weakly
-		self.scheduler = Scheduler(timers: timers, timeout: chunkTimeout, window: window) { data, peer throws(TalkError) in
+		self.scheduler = Scheduler(timers: timers, timeout: chunkTimeout, window: window, peerWindow: peerWindow) { data, peer throws(TalkError) in
 			try transport.send(data, to: peer)
 		}
 		reassembler.onTimeout = { [weak self] transfer in

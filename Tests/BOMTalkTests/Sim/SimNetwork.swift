@@ -33,6 +33,8 @@ struct SimConfig {
 	var chunkTimeout: Duration = .seconds(30)
 	/// Talk's flow control window per outgoing transfer; `Int.max` turns flow control off.
 	var window = FlowControl.window
+	/// … and over all transfers to one peer.
+	var peerWindow = FlowControl.peerWindow
 }
 
 /// Deterministic generator (SplitMix64).
@@ -167,7 +169,7 @@ final class SimNetwork {
 			let id = randomUUID()
 			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: 1, timers: timers, maxPeers: config.maxPeers, generation: config.generations[index] ?? RelayPolicy.generation)
 			let transport = wrap?(link, timers) ?? link
-			let talk = talk ? Talk(transport: transport, timers: timers, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout, window: config.window) : nil
+			let talk = talk ? Talk(transport: transport, timers: timers, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout, window: config.window, peerWindow: config.peerWindow) : nil
 			devices.append(SimDevice(index: index, radio: radio, link: link, transport: transport, talk: talk, network: self))
 		}
 	}

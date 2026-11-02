@@ -9,8 +9,9 @@ import Foundation
 /// behind a large one. Yields between chunks to keep the main actor responsive.
 ///
 /// Flow control (`FlowControl`): each transfer keeps at most `window` unacknowledged bytes in
-/// flight; round-robin skips transfers with a full window, and with every window full the pump
-/// suspends until an ack arrives or a transfer is added or failed. A transfer succeeds once the
+/// flight, and all transfers to one peer together at most `peerWindow` (one link queue, however many
+/// transfers share it); round-robin skips transfers that are not admitted, and with all of them
+/// blocked the pump suspends until an ack arrives or a transfer is added or failed. A transfer succeeds once the
 /// receiver acknowledged all bytes, and fails with `.timeout` when its acknowledged bytes do not
 /// advance for `timeout` (receiver gone, data lost at a dead relay). Without a final ack the last
 /// chunk is sent again every `FlowControl.finalAckProbe`, in case only the ack was lost.
@@ -55,6 +56,7 @@ final class Scheduler {
 	private let timers: any Timers
 	private let timeout: Duration
 	private let window: Int
+	private let peerWindow: Int
 	private var jobs: [Job] = []
 	private var cursor = 0
 	private var pump: Task<Void, Never>?
@@ -64,10 +66,12 @@ final class Scheduler {
 	/// - Parameters:
 	///   - timeout: A transfer whose acknowledged bytes do not advance this long fails with `.timeout`.
 	///   - window: Unacknowledged bytes per transfer, `FlowControl.window` (tests use others).
-	init(timers: any Timers, timeout: Duration, window: Int = FlowControl.window, send: @escaping Send) {
+	///   - peerWindow: Unacknowledged bytes over all transfers to one peer, `FlowControl.peerWindow`.
+	init(timers: any Timers, timeout: Duration, window: Int = FlowControl.window, peerWindow: Int = FlowControl.peerWindow, send: @escaping Send) {
 		self.timers = timers
 		self.timeout = timeout
 		self.window = max(window, 1)
+		self.peerWindow = max(peerWindow, 1)
 		self.send = send
 	}
 
@@ -118,6 +122,11 @@ final class Scheduler {
 		}
 	}
 
+	/// Bytes handed to the transport for `peer` that no ack covers yet, over all its transfers.
+	func unacknowledgedBytes(for peer: UUID) -> Int {
+		jobs.reduce(0) { $0 + ($1.peer == peer ? $1.sentBytes - $1.acknowledgedBytes : 0) }
+	}
+
 	/// Fails all jobs matching `predicate` (single failure path, also the future cancel hook).
 	func fail(_ error: TalkError, where predicate: (_ id: UUID, _ peer: UUID) -> Bool) {
 		for job in jobs where predicate(job.id, job.peer) {
@@ -138,14 +147,22 @@ final class Scheduler {
 		pump = nil
 	}
 
-	/// Round-robin from the cursor: the first job with chunks left and room in its window.
+	/// Round-robin from the cursor: the first job with chunks left and room in its own window and in
+	/// its peer's.
 	private func nextReady() -> Job? {
+		var outstanding: [UUID: Int] = [:]
+		for job in jobs {
+			outstanding[job.peer, default: 0] += job.sentBytes - job.acknowledgedBytes
+		}
 		for offset in 0 ..< jobs.count {
 			let index = (cursor + offset) % jobs.count
 			let job = jobs[index]
 			let chunk = min(Frame.maxChunkPayload, job.payload.count - job.sentBytes)
+			let peerBytes = outstanding[job.peer] ?? 0
 			// an empty window always admits one chunk, whatever the window size
-			if !job.isFullySent && (job.sentBytes == job.acknowledgedBytes || job.sentBytes + chunk - job.acknowledgedBytes <= window) {
+			let fitsWindow = job.sentBytes == job.acknowledgedBytes || job.sentBytes + chunk - job.acknowledgedBytes <= window
+			let fitsPeer = peerBytes == 0 || peerBytes + chunk <= peerWindow
+			if !job.isFullySent && fitsWindow && fitsPeer {
 				cursor = index
 				return job
 			}
