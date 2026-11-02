@@ -121,6 +121,10 @@ enum MPCPolicy {
 	/// The side not inviting waits this long before inviting anyway.
 	static let fallbackDelay: Duration = .seconds(5)
 	static let backoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+	/// Bytes that may wait for one peer in `MPCRadio`'s send queue while `MCSession.send` blocks:
+	/// 64 chunks, several times what flow control keeps in flight per peer (`FlowControl.peerWindow`),
+	/// so only a link that stopped moving runs into it.
+	static let sendBacklog = 64 * 64 * 1024
 	/// At most one advertiser restart (info update) per interval.
 	static let advertiserRestartDelay: Duration = .milliseconds(500)
 

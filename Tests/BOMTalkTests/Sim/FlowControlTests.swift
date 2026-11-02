@@ -14,6 +14,27 @@ import Testing
 
 	static let chunk = Frame.maxChunkPayload
 
+	// MARK: - Reassembler
+
+	/// Incoming progress moves in steps of `FlowControl.ackInterval` and is complete at the end, so
+	/// observers do not redraw on every chunk.
+	@Test func reassemblerProgressInSteps() {
+		let timers = ManualTimers()
+		let reassembler = Reassembler(timeout: .seconds(30), timers: timers)
+		let peer = UUID(), id = UUID()
+		let total = 9 * Self.chunk + 100
+		let transfer = Transfer(id: id, peer: peer, kind: "blob", direction: .incoming, totalBytes: total)
+		reassembler.begin(transfer, chunkCount: 10, totalBytes: total)
+		var progress: [Int] = []
+		for index in [1, 0, 3, 2, 4, 5, 6, 7, 9, 8] {
+			let size = index == 9 ? 100 : Self.chunk
+			_ = reassembler.add(Data(count: size), index: index, to: id, from: peer)
+			progress.append(transfer.completedBytes)
+		}
+		let step = FlowControl.ackInterval
+		#expect(progress == [0, 0, 0, step, step, step, step, 2 * step, 2 * step, total])
+	}
+
 	// MARK: - Scheduler
 
 	/// The window holds 8 chunks; acks from another peer, for another transfer, beyond what was sent

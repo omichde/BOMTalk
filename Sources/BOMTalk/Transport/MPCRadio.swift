@@ -38,6 +38,10 @@ extension LinkTransport where Radio == MPCRadio {
 /// of a peer that vanished abruptly for a while, and invitations between them and a reused peer id
 /// hang meanwhile (`GCKSession … Timed out, enforcing clean up`). `LinkTransport` identifies devices
 /// by the UUID in the discovery info and copes with several handles per device.
+///
+/// Sending happens off the main actor, one serial queue per peer (`Outbox`): `MCSession.send` may
+/// block while MPC's buffer for a slow or vanished peer is full, and on the main actor that froze the
+/// whole app (rig runs with blobs: instances stopped answering for good).
 @MainActor
 final class MPCRadio: LinkRadio {
 
@@ -51,6 +55,7 @@ final class MPCRadio: LinkRadio {
 		var advertiser: MCNearbyServiceAdvertiser
 		let browser: MCNearbyServiceBrowser
 		let proxy: MPCDelegateProxy
+		var outboxes: [MCPeerID: Outbox] = [:]
 	}
 
 	private let displayName: String
@@ -111,11 +116,20 @@ final class MPCRadio: LinkRadio {
 
 	func cancel(_ handle: MCPeerID) {
 		services?.session.cancelConnectPeer(handle)
+		services?.outboxes[handle] = nil
 	}
 
+	/// Queues the data for the peer; throws if the peer's backlog is full (`MPCPolicy.sendBacklog`).
+	/// MPC's own errors arrive later and are only logged: the link transport learns about a dead link
+	/// from the session state, the relay from silence.
 	func send(_ data: Data, to handle: MCPeerID) throws {
-		guard let services else { throw TalkError.notConnected }
-		try services.session.send(data, toPeers: [handle], with: .reliable)
+		guard var services else { throw TalkError.notConnected }
+		let outbox = services.outboxes[handle] ?? Outbox(session: services.session, peer: handle)
+		if services.outboxes[handle] == nil {
+			services.outboxes[handle] = outbox
+			self.services = services
+		}
+		try outbox.send(data)
 	}
 
 	// MARK: - Delegate callbacks (on main, in arrival order)
@@ -150,6 +164,9 @@ final class MPCRadio: LinkRadio {
 				handler(accept, accept ? session : nil)
 			}))
 		case let .state(peerID, state):
+			if state == .notConnected {
+				self.services?.outboxes[peerID] = nil
+			}
 			onEvent(.state(peerID, state))
 		case let .data(data, peerID):
 			onEvent(.data(data, from: peerID))
@@ -166,6 +183,43 @@ final class MPCRadio: LinkRadio {
 		let advertiser = MCNearbyServiceAdvertiser(peer: localHandle, discoveryInfo: discoveryInfo, serviceType: serviceType)
 		advertiser.delegate = proxy
 		return advertiser
+	}
+}
+
+/// Sends to one peer of a session in order, on its own serial queue, and bounds what waits there.
+private final class Outbox: @unchecked Sendable {
+
+	private let session: MCSession
+	private let peer: MCPeerID
+	private let queue: DispatchQueue
+	private let lock = NSLock()
+	/// Bytes queued and not handed to MPC yet; only under `lock`.
+	private var backlog = 0
+	private static let logger = Logger.bomtalk("transport")
+
+	init(session: MCSession, peer: MCPeerID) {
+		self.session = session
+		self.peer = peer
+		queue = DispatchQueue(label: "de.werk01.BOMTalk.send", qos: .userInitiated)
+	}
+
+	/// Throws if `MPCPolicy.sendBacklog` bytes already wait (one frame always fits).
+	func send(_ data: Data) throws {
+		let count = data.count
+		let accepted = lock.withLock {
+			guard backlog == 0 || backlog + count <= MPCPolicy.sendBacklog else { return false }
+			backlog += count
+			return true
+		}
+		guard accepted else { throw TalkError.sendFailed("send backlog full") }
+		queue.async { [self] in
+			do {
+				try session.send(data, toPeers: [peer], with: .reliable)
+			} catch {
+				Self.logger.debug("sending to \(self.peer.displayName, privacy: .public) failed: \(error, privacy: .public)")
+			}
+			lock.withLock { backlog -= count }
+		}
 	}
 }
 

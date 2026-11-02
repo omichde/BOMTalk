@@ -23,8 +23,8 @@ public final class Transfer: Identifiable {
 	public let direction: Direction
 	/// Payload size in bytes (compressed).
 	public let totalBytes: Int
-	/// Outgoing: bytes the receiver acknowledged (in steps of `FlowControl.ackInterval`). Incoming:
-	/// bytes received.
+	/// Outgoing: bytes the receiver acknowledged. Incoming: bytes received. Both in steps of
+	/// `FlowControl.ackInterval` (and complete at the end).
 	public internal(set) var completedBytes = 0
 
 	/// 0…1

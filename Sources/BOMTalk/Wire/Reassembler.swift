@@ -86,10 +86,12 @@ final class Reassembler {
 		if entries[key] == nil, let done = completed[key], timers.now - done.at < timeout {
 			return .repeated(acknowledge: UInt64(done.totalBytes))
 		}
-		guard var entry = entries[key],
-			0 ..< entry.chunkCount ~= index,
-			entry.chunks[index] == nil,
-			entry.receivedBytes + payload.count <= entry.totalBytes
+		guard let existing = entries[key],
+			0 ..< existing.chunkCount ~= index,
+			existing.chunks[index] == nil,
+			existing.receivedBytes + payload.count <= existing.totalBytes,
+			// taken out while changed, so its chunk dictionary is not copied on every chunk
+			var entry = entries.removeValue(forKey: key)
 		else { return .ignored }
 		entry.chunks[index] = payload
 		entry.receivedBytes += payload.count
@@ -98,7 +100,11 @@ final class Reassembler {
 			entry.prefixBytes += chunk.count
 		}
 		entry.lastChunk = timers.now
-		entry.transfer.completedBytes += payload.count
+		// progress in steps like the sender's (acks): every change redraws observers, per chunk that
+		// kept the main actor busy during large transfers
+		if entry.receivedBytes - entry.transfer.completedBytes >= FlowControl.ackInterval || entry.chunks.count == entry.chunkCount {
+			entry.transfer.completedBytes = entry.receivedBytes
+		}
 		guard entry.chunks.count == entry.chunkCount else {
 			var acknowledge: UInt64?
 			if entry.prefixBytes - entry.acknowledgedBytes >= FlowControl.ackInterval {
@@ -109,7 +115,6 @@ final class Reassembler {
 			return .progressed(acknowledge: acknowledge)
 		}
 		entry.watchdog?.cancel()
-		entries[key] = nil
 		let now = timers.now
 		completed = completed.filter { now - $0.value.at < timeout }
 		guard entry.receivedBytes == entry.totalBytes else {
