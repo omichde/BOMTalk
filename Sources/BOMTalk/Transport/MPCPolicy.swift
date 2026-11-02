@@ -112,9 +112,12 @@ enum MPCPolicy {
 	static let maxRemotePeers = 7
 	/// Of the peer cap, reserved for bridges between partitions while a link policy is set.
 	static let bridgeSlots = 1
-	static let inviteTimeout: TimeInterval = 30
-	/// A peer stuck in connecting this long is cancelled and counts as failed attempt.
-	static let watchdogDelay: Duration = .seconds(inviteTimeout + 10)
+	/// MPC connects that succeed take a few seconds (rig runs: mostly 1–3 s); attempts that hang
+	/// rarely recover, and each one holds a link slot meanwhile. Was 30 s.
+	static let inviteTimeout: TimeInterval = 15
+	/// A peer stuck in connecting this long is cancelled and counts as failed attempt. MPC does not
+	/// always report the invitation timeout (rig runs: pending attempts ended only by this watchdog).
+	static let watchdogDelay: Duration = .seconds(inviteTimeout + 5)
 	/// The side not inviting waits this long before inviting anyway.
 	static let fallbackDelay: Duration = .seconds(5)
 	static let backoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]

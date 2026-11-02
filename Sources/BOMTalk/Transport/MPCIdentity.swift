@@ -9,14 +9,17 @@ import os
 import Security
 
 /// Persistent identity of this device: a UUID kept in the Keychain (not part of backups, so restored or
-/// cloned devices get their own) plus the `MCPeerID` archived in `UserDefaults` together with the UUID it
-/// belongs to. The peer id is recreated when the name or the UUID changes.
+/// cloned devices get their own), mirrored in `UserDefaults` as a fallback if the Keychain fails, plus
+/// the display name for MPC.
+///
+/// The `MCPeerID` is not part of it: `MPCRadio` creates a fresh one on every start. Remote MPC stacks
+/// notice an abrupt loss late and keep the old session for that peer id meanwhile; invitations with
+/// a reused one hung until they cleaned up (simulator rig runs, RELAY-PLAN.md). Devices are identified
+/// by the UUID in the discovery info, so a new peer id per start costs nothing.
 struct MPCIdentity {
 
 	let uuid: UUID
-	let peerID: MCPeerID
-
-	var displayName: String { peerID.displayName }
+	let displayName: String
 
 	/// `MCPeerID` display names are limited to 63 bytes UTF-8.
 	static let maxNameBytes = 63
@@ -35,13 +38,12 @@ struct MPCIdentity {
 	/// A random identity that touches neither Keychain nor UserDefaults: for several instances on one
 	/// Mac (debug rigs), which would otherwise share one stored identity and look cloned.
 	static func ephemeral(displayName: String) -> MPCIdentity {
-		MPCIdentity(uuid: UUID(), peerID: MCPeerID(displayName: peerName(displayName)))
+		MPCIdentity(uuid: UUID(), displayName: peerName(displayName))
 	}
 
-	/// Loads the stored identity, creating or updating it as needed.
+	/// Loads the stored identity, creating it as needed.
 	static func load(appID: String, displayName: String, defaults: UserDefaults, store: any MPCUUIDStore) -> MPCIdentity {
 		let key = key(appID: appID)
-		let name = peerName(displayName)
 		let stored = defaults.dictionary(forKey: key)
 		let storedUUID = (stored?["uuid"] as? String).flatMap(UUID.init(uuidString:))
 
@@ -58,20 +60,10 @@ struct MPCIdentity {
 			uuid = storedUUID ?? UUID()
 		}
 
-		if uuid == storedUUID,
-			let data = stored?["peerID"] as? Data,
-			let peerID = try? NSKeyedUnarchiver.unarchivedObject(ofClass: MCPeerID.self, from: data),
-			peerID.displayName == name {
-			return MPCIdentity(uuid: uuid, peerID: peerID)
+		if uuid != storedUUID || stored?["peerID"] != nil {	// earlier builds archived a peer id here
+			defaults.set(["uuid": uuid.uuidString], forKey: key)
 		}
-
-		let identity = MPCIdentity(uuid: uuid, peerID: MCPeerID(displayName: name))
-		var record: [String: Any] = ["uuid": uuid.uuidString]
-		if let data = try? NSKeyedArchiver.archivedData(withRootObject: identity.peerID, requiringSecureCoding: true) {
-			record["peerID"] = data
-		}
-		defaults.set(record, forKey: key)
-		return identity
+		return MPCIdentity(uuid: uuid, displayName: peerName(displayName))
 	}
 }
 

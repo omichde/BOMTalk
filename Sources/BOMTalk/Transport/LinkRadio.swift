@@ -33,12 +33,13 @@ protocol LinkRadio: AnyObject {
 
 	var onEvent: (@MainActor (LinkRadioEvent<Handle>) -> Void)? { get set }
 
-	/// This device; the browser may report it, too.
+	/// This device in the current run; the browser may report it, too. May change on every start.
 	var localHandle: Handle { get }
 
 	func displayName(of handle: Handle) -> String
 
-	/// Starts advertising with `discoveryInfo` and browsing, with a fresh session. Idempotent.
+	/// Starts advertising with `discoveryInfo` and browsing, with a fresh session (and, in production, a
+	/// fresh local handle). Idempotent.
 	func start(discoveryInfo: [String: String])
 	/// Disconnects the session and stops advertising and browsing. Idempotent.
 	func stop()

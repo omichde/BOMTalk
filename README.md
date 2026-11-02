@@ -155,7 +155,8 @@ stops accepting that kind. Several subscribers share one decoded value.
 - iOS backgrounding: MultipeerConnectivity drops sessions in the background. Call `stop()` when
   the scene goes to `.background` and `start()` again when `.active` (see the sample app).
 - Identity: each device keeps a stable peer identity in the Keychain (device-only, not in
-  backups), so restored or cloned devices get a new identity.
+  backups), so restored or cloned devices get a new identity. The MultipeerConnectivity peer id
+  is new on every `start()` (other devices may still hold a session with the old one).
 
 - Logging: only problems the API cannot report otherwise (e.g. malformed frames, invalid
   discovery info, keychain failure) via `os.Logger`, subsystem `de.werk01.BOMTalk`.

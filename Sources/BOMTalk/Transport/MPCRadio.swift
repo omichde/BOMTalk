@@ -20,7 +20,7 @@ extension LinkTransport where Radio == MPCRadio {
 			? MPCIdentity.ephemeral(displayName: displayName)
 			: MPCIdentity.load(appID: appID, displayName: displayName, defaults: .standard, store: KeychainUUIDStore(service: "BOMTalk.\(appID)"))
 		self.init(
-			radio: MPCRadio(peerID: identity.peerID, serviceType: serviceType),
+			radio: MPCRadio(displayName: identity.displayName, serviceType: serviceType),
 			localID: identity.uuid,
 			displayName: identity.displayName,
 			appID: appID,
@@ -33,11 +33,17 @@ extension LinkTransport where Radio == MPCRadio {
 
 /// One `MCSession` plus advertiser and browser, recreated on every start. A thin adapter: callbacks
 /// are hopped to the main actor in arrival order and passed on as `LinkRadioEvent`s.
+///
+/// Every start also gets a fresh `MCPeerID` (same display name): remote MPC stacks keep the session
+/// of a peer that vanished abruptly for a while, and invitations between them and a reused peer id
+/// hang meanwhile (`GCKSession … Timed out, enforcing clean up`). `LinkTransport` identifies devices
+/// by the UUID in the discovery info and copes with several handles per device.
 @MainActor
 final class MPCRadio: LinkRadio {
 
 	var onEvent: (@MainActor (LinkRadioEvent<MCPeerID>) -> Void)?
-	let localHandle: MCPeerID
+	/// This run's peer id; replaced on every start.
+	private(set) var localHandle: MCPeerID
 
 	/// Everything that only exists while running; recreated on every start.
 	private struct Services {
@@ -47,12 +53,14 @@ final class MPCRadio: LinkRadio {
 		let proxy: MPCDelegateProxy
 	}
 
+	private let displayName: String
 	private let serviceType: String
 	private let logger = Logger.bomtalk("transport")
 	private var services: Services?
 
-	init(peerID: MCPeerID, serviceType: String) {
-		localHandle = peerID
+	init(displayName: String, serviceType: String) {
+		self.displayName = displayName
+		localHandle = MCPeerID(displayName: displayName)
 		self.serviceType = serviceType
 	}
 
@@ -64,6 +72,7 @@ final class MPCRadio: LinkRadio {
 
 	func start(discoveryInfo: [String: String]) {
 		guard services == nil else { return }
+		localHandle = MCPeerID(displayName: displayName)
 		let session = MCSession(peer: localHandle, securityIdentity: nil, encryptionPreference: .required)
 		let browser = MCNearbyServiceBrowser(peer: localHandle, serviceType: serviceType)
 		let proxy = MPCDelegateProxy(radio: self)
