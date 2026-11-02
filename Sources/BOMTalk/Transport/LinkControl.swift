@@ -19,6 +19,10 @@ struct LinkPolicy: Sendable, Equatable {
 	/// Reachable devices without a free regular slot (per their hello): not invited, because they
 	/// would decline. Their invitations are still accepted.
 	var full: Set<UUID> = []
+	/// This device's partition (itself and every device it reaches) is smaller than the set of
+	/// bridge candidates: the smaller side of a split. Not about admission: the radio health may
+	/// reset a radio that still has links when the attempts to bridge keep hanging (`RadioHealth`).
+	var outnumbered = false
 }
 
 /// Control of a link transport by the decorator above it. `RelayTransport` uses it when its lower

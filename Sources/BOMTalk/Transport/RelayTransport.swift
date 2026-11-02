@@ -697,7 +697,8 @@ final class RelayTransport: Transport {
 		}
 		unreachable = unreachable.filter { visible[$0.key] != nil }
 		let full = entries.filter { $0.value.hello.flags.contains(.regularSlotsFull) && routes[$0.key] != nil && links[$0.key] == nil }.keys
-		let policy = LinkPolicy(bridgeCandidates: candidates, suppressed: Set(suppressed.keys), full: Set(full))
+		let outnumbered = candidates.count > routes.count + 1
+		let policy = LinkPolicy(bridgeCandidates: candidates, suppressed: Set(suppressed.keys), full: Set(full), outnumbered: outnumbered)
 		guard policy != self.policy else { return }
 		self.policy = policy
 		control.setLinkPolicy(policy)

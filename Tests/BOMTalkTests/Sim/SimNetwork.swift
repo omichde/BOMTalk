@@ -59,6 +59,9 @@ struct SimConfig {
 	/// Rig runs: one device's attempts with everyone hung for minutes after such a loss. See also
 	/// `SimNetwork.wedge(_:)`.
 	var wedgeOnAbruptLoss: Set<Int> = []
+	/// A wedged session still answers declines: only accepted invitations from or to it hang. Rig runs
+	/// (heal, cap 2): the wedged pair got quick declines from full devices, every accepted attempt hung.
+	var wedgeAnswersDeclines = false
 }
 
 /// Deterministic generator (SplitMix64).
@@ -528,7 +531,7 @@ final class SimNetwork {
 		lastInvite += 1
 		let id = lastInvite
 		let from = handle(a)
-		guard !hangs(from: from, to: target) else {
+		guard !hangs(from: from, to: target, wedgedToo: !config.wedgeAnswersDeclines) else {
 			hungInvitations += 1
 			invites[edge] = Invite(id: id, timeout: nil, from: from, target: target)	// silent until cancelled
 			return
@@ -597,6 +600,11 @@ final class SimNetwork {
 		let (from, target) = (invite.from, invite.target)
 		guard accept else {
 			post(a, after: config.latency) { .state(target, .notConnected) }
+			return
+		}
+		if config.wedgeAnswersDeclines, wedged.contains(a) || wedged.contains(b) {	// silent until cancelled
+			hungInvitations += 1
+			invites[edge] = Invite(id: id, timeout: nil, from: from, target: target)
 			return
 		}
 		let pair = Pair(a, b)
@@ -688,10 +696,11 @@ final class SimNetwork {
 		devices[index].radio.localHandle
 	}
 
-	/// A wedged session or a stale one on either side, or bad luck (`hangProbability`).
-	private func hangs(from: SimHandle, to target: SimHandle) -> Bool {
+	/// A wedged session (unless `wedgedToo` is false) or a stale one on either side, or bad luck
+	/// (`hangProbability`).
+	private func hangs(from: SimHandle, to target: SimHandle, wedgedToo: Bool) -> Bool {
 		let now = timers.now
-		if wedged.contains(from.index) || wedged.contains(target.index) {
+		if wedgedToo, wedged.contains(from.index) || wedged.contains(target.index) {
 			return true
 		}
 		if let until = stale[Remote(index: target.index, handle: from)], until > now {

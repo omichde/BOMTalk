@@ -16,7 +16,8 @@ import os
 /// `LinkControl` lets the relay above steer admission (`LinkPolicy`) and drop single links.
 ///
 /// A radio that looks wedged (`RadioHealth`: attempts with several peers keep hanging while no link
-/// works) is stopped and started again with a fresh session, after `RadioResetPolicy.pause`. The
+/// works, or while the device is cut off from a larger part of the network it sees) is stopped and
+/// started again with a fresh session, after `RadioResetPolicy.pause`. The
 /// transport stays running meanwhile; the layer above sees every peer `disconnected` and `lost`,
 /// then found again by the new radio.
 @MainActor
@@ -114,6 +115,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	var linkCap: Int { machine.maxPeers }
 
 	func setLinkPolicy(_ policy: LinkPolicy) {
+		health.observe(policy, at: timers.now)
 		let actions = machine.setPolicy(policy)
 		guard isRunning else { return }
 		perform(actions)
