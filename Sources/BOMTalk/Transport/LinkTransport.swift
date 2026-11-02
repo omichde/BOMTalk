@@ -6,8 +6,8 @@
 import Foundation
 import os
 
-/// Transport over a `LinkRadio`: advertises and browses at the same time (mesh), filters by app id
-/// and protocol version, connects automatically and reconnects with backoff.
+/// Transport over a `LinkRadio`: advertises and browses at the same time (mesh), filters by app id,
+/// protocol version and relay generation, connects automatically and reconnects with backoff.
 ///
 /// Radio-agnostic: the per-peer state machine lives in `MPCPeerMachine`, all MultipeerConnectivity
 /// objects in the radio (`MPCRadio` in production, see `MPCTransport`). Timers are injected, so the
@@ -21,6 +21,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 	let radio: Radio
 	private let appID: String
 	private let protocolVersion: Int
+	private let generation: Int
 	private let invitationContext: Data?
 	private let timers: any Timers
 	private let logger = Logger.bomtalk("transport")
@@ -29,12 +30,13 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 	private var machine: MPCPeerMachine<Radio.Handle>
 	private var advertiserRestart: TimerToken?
 
-	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers) {
+	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers, generation: Int = RelayPolicy.generation) {
 		self.radio = radio
 		self.appID = appID
 		self.protocolVersion = protocolVersion
+		self.generation = generation
 		self.timers = timers
-		invitationContext = InvitationContext(appID: appID, version: protocolVersion, uuid: localID).encoded()
+		invitationContext = InvitationContext(appID: appID, version: protocolVersion, uuid: localID, generation: generation).encoded()
 		machine = MPCPeerMachine(localID: localID, maxPeers: maxPeers)
 		localPeer = TransportPeer(id: localID, name: displayName, info: [:])
 		radio.onEvent = { [weak self] event in
@@ -96,7 +98,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 		case let .lost(handle):
 			perform(machine.lost(handle))
 		case let .invitation(handle, context, reply):
-			guard let id = InvitationContext.decode(context, appID: appID, protocolVersion: protocolVersion) else {
+			guard let id = InvitationContext.decode(context, appID: appID, protocolVersion: protocolVersion, generation: generation) else {
 				return reply(false)
 			}
 			let (accept, actions) = machine.invitation(from: handle, id: id, name: radio.displayName(of: handle))
@@ -112,7 +114,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 	}
 
 	private func found(_ handle: Radio.Handle, info: [String: String]?) {
-		guard let (id, hostInfo) = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion) else { return }
+		guard let (id, hostInfo) = DiscoveryInfo.decode(info, appID: appID, protocolVersion: protocolVersion, generation: generation) else { return }
 		guard id != localPeer.id else {
 			if handle != radio.localHandle {
 				logger.warning("peer \(self.radio.displayName(of: handle), privacy: .public) has our own UUID (cloned device?)")
@@ -144,6 +146,6 @@ final class LinkTransport<Radio: LinkRadio>: Transport {
 	}
 
 	private var discoveryInfo: [String: String] {
-		DiscoveryInfo.encode(appID: appID, protocolVersion: protocolVersion, uuid: localPeer.id, info: localPeer.info)
+		DiscoveryInfo.encode(appID: appID, protocolVersion: protocolVersion, generation: generation, uuid: localPeer.id, info: localPeer.info)
 	}
 }

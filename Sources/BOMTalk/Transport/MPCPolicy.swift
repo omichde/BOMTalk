@@ -12,7 +12,10 @@ enum DiscoveryInfo {
 	static let appKey = "_a"
 	static let versionKey = "_v"
 	static let uuidKey = "_u"
-	static let reservedKeys: Set<String> = [appKey, versionKey, uuidKey]
+	/// Relay generation (`RelayPolicy.generation`): builds of another generation never see each other.
+	/// Builds before the relay (v2) don't send it and are ignored.
+	static let generationKey = "_g"
+	static let reservedKeys: Set<String> = [appKey, versionKey, uuidKey, generationKey]
 
 	/// Bonjour TXT record limits: 255 bytes per `key=value`, about 400 bytes in total.
 	static let maxPairBytes = 255
@@ -22,8 +25,8 @@ enum DiscoveryInfo {
 
 	/// Reserved keys always win. Invalid host pairs are dropped; if the host info doesn't fit, only the
 	/// reserved keys are advertised (connected peers still get the info via Talk's info frame).
-	static func encode(appID: String, protocolVersion: Int, uuid: UUID, info: [String: String]) -> [String: String] {
-		let reserved = [appKey: appID, versionKey: String(protocolVersion), uuidKey: uuid.uuidString]
+	static func encode(appID: String, protocolVersion: Int, generation: Int = RelayPolicy.generation, uuid: UUID, info: [String: String]) -> [String: String] {
+		let reserved = [appKey: appID, versionKey: String(protocolVersion), uuidKey: uuid.uuidString, generationKey: String(generation)]
 		var result = reserved
 		for (key, value) in info {
 			guard !reservedKeys.contains(key), isValidKey(key), pairBytes(key, value) <= maxPairBytes else {
@@ -50,32 +53,36 @@ enum DiscoveryInfo {
 	}
 
 	/// Returns the peer's UUID and host info, or nil for foreign / incompatible / invalid peers.
-	static func decode(_ info: [String: String]?, appID: String, protocolVersion: Int) -> (id: UUID, info: [String: String])? {
+	static func decode(_ info: [String: String]?, appID: String, protocolVersion: Int, generation: Int = RelayPolicy.generation) -> (id: UUID, info: [String: String])? {
 		guard let info,
 			info[appKey] == appID,
 			info[versionKey] == String(protocolVersion),
+			info[generationKey] == String(generation),
 			let id = info[uuidKey].flatMap(UUID.init(uuidString:))
 		else { return nil }
 		return (id, info.filter { !reservedKeys.contains($0.key) })
 	}
 }
 
-/// Sent as invitation context, checked by the invitee before accepting.
+/// Sent as invitation context, checked by the invitee before accepting. Contexts without a
+/// `generation` (builds before the relay) fail to decode and are declined.
 struct InvitationContext: Codable, Equatable {
 	let appID: String
 	let version: Int
 	let uuid: UUID
+	var generation = RelayPolicy.generation
 
 	func encoded() -> Data? {
 		try? JSONEncoder().encode(self)
 	}
 
-	/// Returns the inviter's UUID if the context matches this app id and version.
-	static func decode(_ data: Data?, appID: String, protocolVersion: Int) -> UUID? {
+	/// Returns the inviter's UUID if the context matches this app id, version and relay generation.
+	static func decode(_ data: Data?, appID: String, protocolVersion: Int, generation: Int = RelayPolicy.generation) -> UUID? {
 		guard let data,
 			let context = try? JSONDecoder().decode(InvitationContext.self, from: data),
 			context.appID == appID,
-			context.version == protocolVersion
+			context.version == protocolVersion,
+			context.generation == generation
 		else { return nil }
 		return context.uuid
 	}
