@@ -5,6 +5,7 @@
 
 import Foundation
 import MultipeerConnectivity
+import Testing
 @testable import BOMTalk
 
 /// Timing and limits of the simulated radio.
@@ -19,6 +20,10 @@ struct SimConfig {
 	var sessionCapacity = 8
 	/// Peer cap of each device's `MPCPeerMachine`; above `sessionCapacity - 1` the sim refuses instead.
 	var maxPeers = MPCPolicy.maxRemotePeers
+	/// Bytes per second per link and direction; data queues behind earlier data. Nil: unlimited.
+	var bandwidth: Int?
+	/// Relay generation per device index (`RelayPolicy.generation` for the others).
+	var generations: [Int: Int] = [:]
 	/// Time step of `run(for:)` / `run(until:)`.
 	var step: Duration = .milliseconds(10)
 	/// Main actor yields per step while any device has a `Talk`, so its tasks can run.
@@ -74,6 +79,15 @@ final class SimNetwork {
 	/// The hook for decorators like a relay; the default is the link transport itself.
 	typealias Wrap = @MainActor (_ link: LinkTransport<SimRadio>, _ timers: ManualTimers) -> any Transport
 
+	/// A `RelayTransport` on virtual time: hello jitter seeded from the device's UUID, epoch from the
+	/// virtual clock (ms).
+	static let relay: Wrap = { link, timers in
+		let seed = withUnsafeBytes(of: link.localPeer.id.uuid) { $0.loadUnaligned(as: UInt64.self) }
+		return RelayTransport(lower: link, timers: timers, random: SeededGenerator(seed: seed)) {
+			UInt64(SimNetwork.milliseconds(timers.now))
+		}
+	}
+
 	private struct Pair: Hashable {
 		let low: Int
 		let high: Int
@@ -95,6 +109,8 @@ final class SimNetwork {
 	private final class Link {
 		var isConnected = false
 		var isBlackholed = false
+		/// Per sending device: when its queued data has gone out (with `bandwidth`).
+		var busyUntil: [Int: Duration] = [:]
 	}
 
 	private struct Invite {
@@ -109,6 +125,9 @@ final class SimNetwork {
 	private(set) var log: [String] = []
 	/// Accepted invitations that failed because a session was full.
 	private(set) var capRefusals = 0
+	/// Violations of the `TransportEvent` ordering rules by any device's top transport, see
+	/// `TransportContract`. Each one is also recorded as a test issue.
+	private(set) var contractViolations: [String] = []
 
 	private var rng: SeededGenerator
 	private var visible: Set<Pair> = []
@@ -128,7 +147,7 @@ final class SimNetwork {
 		for index in 0 ..< count {
 			let radio = SimRadio(index: index, network: self)
 			let id = randomUUID()
-			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: 1, timers: timers, maxPeers: config.maxPeers)
+			let link = LinkTransport(radio: radio, localID: id, displayName: radio.localHandle.description, appID: "de.werk01.sim", protocolVersion: 1, timers: timers, maxPeers: config.maxPeers, generation: config.generations[index] ?? RelayPolicy.generation)
 			let transport = wrap?(link, timers) ?? link
 			let talk = talk ? Talk(transport: transport, offerTimeout: config.offerTimeout, chunkTimeout: config.chunkTimeout) : nil
 			devices.append(SimDevice(index: index, radio: radio, link: link, transport: transport, talk: talk, network: self))
@@ -203,6 +222,46 @@ final class SimNetwork {
 				}
 			}
 		}
+	}
+
+	/// A connected sparse graph, drawn from the seeded generator: a random spanning tree plus up to
+	/// `extraEdges` random pairs, nobody seeing more than `maxDegree` others.
+	func randomConnected(maxDegree: Int, extraEdges: Int) {
+		var degree = Array(repeating: 0, count: devices.count)
+		func connect(_ a: Int, _ b: Int) {
+			see(a, b)
+			degree[a] += 1
+			degree[b] += 1
+		}
+		for b in devices.indices.dropFirst() {
+			let candidates = (0 ..< b).filter { degree[$0] < maxDegree }
+			connect(candidates[Int.random(in: candidates.indices, using: &rng)], b)
+		}
+		var added = 0, attempts = 0
+		while added < extraEdges, attempts < extraEdges * 20 {
+			attempts += 1
+			let a = Int.random(in: devices.indices, using: &rng), b = Int.random(in: devices.indices, using: &rng)
+			guard a != b, !isVisible(a, b), degree[a] < maxDegree, degree[b] < maxDegree else { continue }
+			connect(a, b)
+			added += 1
+		}
+	}
+
+	/// Whether every device can reach every other over visible pairs.
+	var isVisibilityConnected: Bool {
+		var reached: Set<Int> = [0], queue = [0]
+		while let a = queue.popLast() {
+			for b in devices.indices where !reached.contains(b) && isVisible(a, b) {
+				reached.insert(b)
+				queue.append(b)
+			}
+		}
+		return reached.count == devices.count
+	}
+
+	/// Visible others per device.
+	func degree(_ index: Int) -> Int {
+		devices.indices.count { isVisible(index, $0) }
 	}
 
 	func isVisible(_ a: Int, _ b: Int) -> Bool {
@@ -349,7 +408,14 @@ final class SimNetwork {
 		let pair = Pair(a, b)
 		guard let link = links[pair], link.isConnected else { throw SimError.notConnected }
 		guard !link.isBlackholed else { return }
-		post(b, after: config.latency) { [unowned self] in
+		var delay = config.latency
+		if let bandwidth = config.bandwidth {
+			let start = max(timers.now, link.busyUntil[a] ?? .zero)
+			let done = start + .seconds(Double(data.count) / Double(bandwidth))
+			link.busyUntil[a] = done
+			delay += done - timers.now
+		}
+		post(b, after: delay) { [unowned self] in
 			guard links[pair] === link, !link.isBlackholed else { return nil }
 			return .data(data, from: SimHandle(index: a))
 		}
@@ -447,6 +513,12 @@ final class SimNetwork {
 
 	func record(_ line: String) {
 		log.append("\(Self.milliseconds(timers.now)) \(line)")
+	}
+
+	func contractViolated(_ violation: String) {
+		let line = "\(Self.milliseconds(timers.now)) \(violation)"
+		contractViolations.append(line)
+		Issue.record("transport contract violated: \(line)")
 	}
 
 	static func milliseconds(_ duration: Duration) -> Int64 {

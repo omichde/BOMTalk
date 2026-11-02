@@ -29,6 +29,7 @@ final class SimDevice {
 	private unowned let network: SimNetwork
 	private(set) var peers: [UUID: PeerState] = [:]
 	private(set) var events: [TransportEvent] = []
+	private var contract = TransportContract()
 
 	init(index: Int, radio: SimRadio, link: LinkTransport<SimRadio>, transport: any Transport, talk: Talk?, network: SimNetwork) {
 		self.index = index
@@ -62,6 +63,7 @@ final class SimDevice {
 			transport.stop()
 		}
 		peers = [:]
+		contract.reset()
 	}
 
 	/// Indices of peers in the given state, sorted.
@@ -71,6 +73,9 @@ final class SimDevice {
 
 	private func record(_ event: TransportEvent) {
 		events.append(event)
+		if let violation = contract.check(event) {
+			network.contractViolated("\(name): \(violation)")
+		}
 		let now = network.now
 		switch event {
 		case let .found(peer):
