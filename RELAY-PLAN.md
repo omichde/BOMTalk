@@ -1,7 +1,7 @@
 # BOMTalk relay – beyond 8 devices
 
-Branch: `feature/relay`. Status: phase 1 (foundations), phase 3 (RelayTransport) and phase 4 (link policy)
-done; `-autostart` in the Sample.
+Branch: `feature/relay`. Status: phase 1 (foundations), phase 3 (RelayTransport), phase 4 (link policy)
+and phase 4b (flow control) done; `-autostart` in the Sample.
 
 ## Problem
 
@@ -279,9 +279,55 @@ optional later add-on for interactive use.
    - Performance (debug, simulator): hellos are deduplicated on their version before decoding, unchanged
      periodic hellos only renew the entry, the sweep refreshes only when time changed something.
    - Known limits: a sender's queue in MPC is invisible, so with a queue longer than 60 s behind an
-     unlink the dropper would use the link again rather than wait (flow control, next phase, bounds
-     queues). Two drops of different edges within one hello propagation time (sub-second on devices)
+     unlink the dropper would use the link again rather than wait (phase 4b bounds the queue to the
+     flow control windows of the transfers on the link). Two drops of different edges within one hello propagation time (sub-second on devices)
      can still split the network; the bridge rule merges it again.
+4b. **Flow control (done)** – found in an audit after phase 4.
+   - **Problem**: `Scheduler` handed every chunk of a transfer to the transport at once (only a
+     `Task.yield` between chunks); MPC buffers it all, so a 50 MB blob put tens of seconds of data
+     into one link's reliable queue. Relay hellos and forwarded hellos on that link waited behind it,
+     map entries on the far side expired (10 s), relayed devices got `.disconnected` and `Talk` failed
+     their transfers. Relays forwarded into the next link just as unbounded. The sender reported
+     success once data was handed off, even if the receiver never got it, and a sender could not see
+     its own MPC queue (busy-link drops, an `unlink` queued behind > 60 s of data).
+   - **Design** (`FlowControl`, `Frame.ack`, `Scheduler`, `Reassembler`):
+     - `Frame.ack(transferID, receivedBytes)` (type 6; relay generation 3 already keeps v2 builds out).
+       `receivedBytes` is the **contiguous prefix** the receiver has, not the unique byte count: a chunk
+       lost at a dead relay (no retransmission) freezes the acks, the window fills, both ends time out.
+       With unique counts the transfer crept on with a hole it could never fill (seen in the
+       route-change test: ~200 KB per ack repeat, no end in sight).
+     - Receiver: ack every 256 KB of prefix (4 chunks) and at completion, fire-and-forget. While no
+       chunk arrives it repeats its ack every 2 s (`ackRepeat`), so a lost ack does not leave the
+       sender with a full window. Completed transfers are remembered for the chunk timeout and
+       re-acknowledged when a chunk of them arrives.
+     - Sender: per transfer at most **512 KB (8 chunks) unacknowledged** (`FlowControl.window`, one
+       place). Round-robin skips jobs with a full window; with every job blocked the pump suspends on
+       a continuation until an ack, a new job or a failure (no polling). Acks for unknown / finished
+       transfers, from another peer, beyond what was sent or going backwards are ignored.
+     - **`send` returns when fully acknowledged** (final ack = total bytes), not when the last chunk was
+       handed off. Stall timeout: acknowledged bytes not advancing for the chunk timeout (30 s) →
+       `.timeout`. If everything was sent but the final ack is missing, the last chunk is sent again
+       every 10 s (`finalAckProbe`); the receiver answers with the final ack (it was lost) or takes the
+       chunk (it was lost).
+     - Outgoing `Transfer.completedBytes` follows the acks, sender and receiver progress together.
+     - `Talk`, `Scheduler` and `Reassembler` take injected `Timers` (offer, chunk and stall timeouts);
+       the simulator now runs `Talk` on virtual time too. Public API unchanged.
+   - **Measured** (sim, line of 5 relays, 1 MB/s per link and direction, 20 MB from d0 to d4, chats
+     d1 → d3 and d2 → d4 every 2 s; `FlowControlTests.largeTransferAlongLine*`):
+     - window 512 KB: completes in 23.8 s (≈ 88 % of the link rate over 4 hops), no `disconnected` /
+       `lost` anywhere, 0 map entries expired, 22 / 22 chats delivered, max chat delay 0.27 s.
+     - window unlimited (old behaviour): d2, d3, d4 report d0 `disconnected` and `lost`, 4 map entries
+       expire, the receiver fails with `.peerDisconnected`, the sender with `.timeout` (40 s).
+   - Tests: `FlowControlTests` (scheduler window / ignored acks / stall timeout, final ack, link FIFO,
+     both line scenarios, blackholed receiver, lost acks, lost final ack, route change, fairness and
+     independent windows, broadcast blob). Changed expectations: `blackholeMidTransfer` now requires
+     `.timeout` on both ends (the sender used to report success); sim tests wait for `send` on virtual
+     time (`SimNetwork.value(of:)`), since it completes only with the final ack; `busyLinkNotDropped`
+     now also requires that the *sending* link is not dropped while data flows.
+   - Remaining limits: one window per transfer, not per link: n concurrent transfers over one link
+     queue n × 512 KB (≈ 5 s per transfer at Bluetooth-like 100 kB/s, so a few concurrent transfers
+     over a slow link can still delay hellos past the expiry). No retransmission: a lost chunk fails the
+     transfer. Throughput is bounded by window / round trip (512 KB per RTT over all hops).
 5. **Real devices** – cap 2 on 4 devices, verify `cancelConnectPeer`, soak run. *Done when* a 30 min
    soak with faults shows full delivery or clean failures only.
 6. **Docs** – README behaviour notes (no fixed 8 limit, relay costs), fold this plan into a summary.
