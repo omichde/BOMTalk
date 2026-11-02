@@ -136,6 +136,14 @@ stops accepting that kind. Several subscribers share one decoded value.
   see each other, so update all devices of an installation together.
 - At most 8 peers including this device (7 remote), further peers are ignored until a slot frees up.
 - Always encrypted, always reliable.
+- Background traffic: every device floods a small hello (about 60 bytes plus 16 per direct
+  neighbour) every 3 s, with more than 30 devices every `devices × 0.1 s` (at most 15 s), so each
+  link carries roughly 1–3 KB/s of it whatever the network size (simulated). Name and `info` travel
+  only when they change (or when a device missed them and asks); quiet links get a small keepalive
+  every 3 s.
+- A device that vanishes is reported `disconnected` within about 10 s (at once if its neighbours'
+  links drop) and removed (`lost`) 10 s after its last hello, up to 50 s in networks of 150 devices
+  or more.
 - Payloads are binary property lists, lzfse compressed, sent in chunks of up to 64 KB;
   concurrent transfers are interleaved.
 - Flow control: the receiver acknowledges every 256 KB, the sender keeps at most 512 KB per

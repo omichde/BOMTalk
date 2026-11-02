@@ -65,11 +65,19 @@ public struct TalkDebugSnapshot: Sendable, Codable, Equatable {
 		public let hellosSent: Int
 		public let hellosReceived: Int
 		public let hellosForwarded: Int
+		/// Keepalives sent to links that carried nothing else.
+		public let keepalivesSent: Int
+		/// Requests for a missing name / info record sent, and requests for ours received.
+		public let recordRequestsSent: Int
+		public let recordRequestsReceived: Int
+		/// Bytes of hellos (own, forwarded, map sync), keepalives and record requests sent: the
+		/// relay's background traffic, summed over all links.
+		public let heartbeatBytesSent: Int
 		public let dataForwarded: Int
 		/// Map entries removed without a fresh hello.
 		public let entriesExpired: Int
-		/// Data frames dropped, by reason (`noRoute`, `hopLimit`, `malformed`, `bufferOverflow`,
-		/// `bufferTimeout`, `sendFailed`); every reason is present.
+		/// Data frames (and record requests passed on) dropped, by reason (`noRoute`, `hopLimit`,
+		/// `malformed`, `bufferOverflow`, `bufferTimeout`, `sendFailed`); every reason is present.
 		public let drops: [String: Int]
 		/// Redundant links this device unlinked.
 		public let voluntaryDrops: Int
@@ -113,6 +121,8 @@ public struct TalkDebugSnapshot: Sendable, Codable, Equatable {
 	/// `Talk.issue`, if any.
 	public let issue: String?
 	public let clock: Double
+	/// Seconds between periodic hellos (before jitter), grows with the number of known devices.
+	public let helloInterval: Double
 	public let peers: [PeerState]
 	/// Direct neighbours counted as linked, sorted by UUID.
 	public let neighbours: [Device]
@@ -159,6 +169,7 @@ extension Talk {
 			isRunning: isRunning,
 			issue: issue.map { String(describing: $0) },
 			clock: snapshot?.now.seconds ?? 0,
+			helloInterval: (snapshot?.helloInterval ?? RelayPolicy.minHelloInterval).seconds,
 			peers: peers.map { .init(id: $0.id, name: $0.name, state: $0.state.debugName) },
 			neighbours: (snapshot?.neighbours ?? []).map { id in .init(id: id, name: names[id] ?? peers.first { $0.id == id }?.name ?? "") },
 			reachable: (snapshot?.reachable ?? []).map { .init(id: $0.id, name: $0.name, hops: $0.hops, nextHop: $0.nextHop) },
@@ -167,6 +178,10 @@ extension Talk {
 				hellosSent: counters.hellosSent,
 				hellosReceived: counters.hellosReceived,
 				hellosForwarded: counters.hellosForwarded,
+				keepalivesSent: counters.keepalivesSent,
+				recordRequestsSent: counters.recordRequestsSent,
+				recordRequestsReceived: counters.recordRequestsReceived,
+				heartbeatBytesSent: counters.heartbeatBytesSent,
 				dataForwarded: counters.dataForwarded,
 				entriesExpired: counters.entriesExpired,
 				drops: Dictionary(uniqueKeysWithValues: RelayCounters.Drop.allCases.map { ($0.rawValue, counters[$0]) }),

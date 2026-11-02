@@ -248,7 +248,7 @@ import Testing
 		let start = net.now
 		#expect(await net.run(until: { !net.isConnected(0, 1) }, limit: RelayPolicy.stalledDisconnect + .seconds(2)))
 		// silent since the last hello before the blackhole
-		#expect(net.now - start >= RelayPolicy.stalledDisconnect - RelayPolicy.helloInterval * (1 + RelayPolicy.helloJitter))
+		#expect(net.now - start >= RelayPolicy.stalledDisconnect - RelayPolicy.minHelloInterval * (1 + RelayPolicy.helloJitter))
 		#expect((1 ... 2).contains(net[0].relay.snapshot.counters.stalledDisconnects + net[1].relay.snapshot.counters.stalledDisconnects))
 		#expect(net.allConnected)	// around the ring meanwhile
 		#expect(await net.run(until: { net.isConnected(0, 1) && net.hops(0, 1) == 1 }, limit: .seconds(10)))
@@ -325,6 +325,16 @@ extension SimNetwork {
 
 	var totalCounters: RelayCounters {
 		devices.map(\.relay.snapshot.counters).reduce(into: RelayCounters()) { total, counters in
+			total.hellosSent += counters.hellosSent
+			total.hellosReceived += counters.hellosReceived
+			total.hellosForwarded += counters.hellosForwarded
+			total.keepalivesSent += counters.keepalivesSent
+			total.recordRequestsSent += counters.recordRequestsSent
+			total.recordRequestsReceived += counters.recordRequestsReceived
+			total.heartbeatBytesSent += counters.heartbeatBytesSent
+			total.dataForwarded += counters.dataForwarded
+			total.entriesExpired += counters.entriesExpired
+			total.drops.merge(counters.drops, uniquingKeysWith: +)
 			total.voluntaryDrops += counters.voluntaryDrops
 			total.stalledDisconnects += counters.stalledDisconnects
 			total.bridgeConnects += counters.bridgeConnects

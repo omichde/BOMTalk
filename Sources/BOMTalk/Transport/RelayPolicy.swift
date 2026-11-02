@@ -10,14 +10,26 @@ enum RelayPolicy {
 
 	/// Hops a frame may travel, also the maximum route length. Bridge merges stretch the diameter.
 	static let hopLimit: UInt8 = 16
-	/// Periodic hello, ± `helloJitter`.
-	static let helloInterval: Duration = .seconds(3)
+	/// Periodic hello every `devices × helloIntervalPerDevice` (devices in the map, this one included),
+	/// at least `minHelloInterval`, at most `maxHelloInterval`, ± `helloJitter`. Every link carries
+	/// each device's hello once per interval, so per-link hello traffic stays flat beyond 30 devices
+	/// (about 10 hellos per second) instead of growing with the device count.
+	static let minHelloInterval: Duration = .seconds(3)
+	static let maxHelloInterval: Duration = .seconds(15)
+	static let helloIntervalPerDevice: Duration = .milliseconds(100)
 	static let helloJitter = 0.2
 	/// Triggered hellos (own neighbours or info changed) are coalesced to at most one per gap.
 	static let helloMinGap: Duration = .milliseconds(500)
-	/// A map entry without a fresher hello for this long is removed. A direct neighbour that sent
-	/// nothing for this long no longer counts as linked (stalled link).
+	/// A map entry without a fresher hello for `expiry(interval:)` of the interval its origin
+	/// announced is removed, at least this long: 10/3 intervals, at least 2.8 even with full jitter.
+	/// A direct neighbour that sent nothing for this long no longer counts as linked (stalled link);
+	/// keepalives keep a quiet link alive independent of the hello interval.
 	static let helloExpiry: Duration = .seconds(10)
+	/// A direct neighbour that got nothing else for this long gets a keepalive (checked every sweep).
+	static let keepaliveInterval: Duration = .seconds(3)
+	/// A device asks the origin of a hello for its missing record at most once per gap (the origin
+	/// answers with a flooded hello carrying the record, requests within `helloMinGap` share one).
+	static let recordRequestGap: Duration = .seconds(5)
 	/// After expiry, the last version of an origin stays known this long, so old copies of its hello
 	/// (map sync from a neighbour that expires a bit later) cannot bring the entry back.
 	static let tombstoneDuration: Duration = .seconds(30)
@@ -33,7 +45,7 @@ enum RelayPolicy {
 	// MARK: Link policy (6 + 1, slot split in `LinkSlots`)
 
 	/// A visible device must stay unreachable this long (± `decisionJitter`) before it becomes a
-	/// bridge candidate: more than one hello interval, so a fresh joiner's hello can arrive first.
+	/// bridge candidate, so a fresh joiner's hello (sent right when it links) can arrive first.
 	static let bridgeDelay: Duration = .seconds(5)
 	/// With every slot in use, a redundant neighbour is dropped once the map has been stable and a
 	/// redundant neighbour existed this long (± `decisionJitter`).
@@ -57,9 +69,20 @@ enum RelayPolicy {
 	/// Link policy actions kept for the snapshot.
 	static let linkActionHistory = 64
 
-	/// Delay until the next periodic hello: `helloInterval` ± `helloJitter`.
-	static func helloDelay(using random: inout some RandomNumberGenerator) -> Duration {
-		helloInterval * Double.random(in: (1 - helloJitter) ... (1 + helloJitter), using: &random)
+	/// Base interval of the periodic hello with this many devices in the map (this one included).
+	static func helloInterval(devices: Int) -> Duration {
+		min(maxHelloInterval, max(minHelloInterval, helloIntervalPerDevice * devices))
+	}
+
+	/// Delay until the next periodic hello: `interval` ± `helloJitter`.
+	static func helloDelay(interval: Duration, using random: inout some RandomNumberGenerator) -> Duration {
+		interval * Double.random(in: (1 - helloJitter) ... (1 + helloJitter), using: &random)
+	}
+
+	/// Map entry expiry for an origin that announced this hello interval: `helloExpiry` at 3 s,
+	/// 50 s at the 15 s cap.
+	static func expiry(interval: Duration) -> Duration {
+		max(helloExpiry, interval * 10 / 3)
 	}
 
 	/// `delay` ± `decisionJitter`, for bridge and drop decisions.

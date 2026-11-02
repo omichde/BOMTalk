@@ -11,12 +11,22 @@ import os
 ///
 /// - **Envelope**: every frame between neighbours is a `RelayEnvelope` with origin, destination and
 ///   hop limit, so `received` reports the original sender.
-/// - **Link state**: each device floods a `RelayHello` (name, info, its direct neighbours) every
-///   `helloInterval` and right after its neighbours change. Hellos are forwarded once per version
-///   (`epoch`, `seq`); every device keeps the latest per origin as its link map. Entries expire after
-///   `helloExpiry`. An edge between two other devices counts only if both list each other; an edge
+/// - **Link state**: each device floods a `RelayHello` (its direct neighbours, flags, an info version)
+///   periodically and right after its neighbours change. The interval grows with the map
+///   (`RelayPolicy.helloInterval(devices:)`, 3–15 s), so per-link hello traffic stays flat. Hellos are
+///   forwarded once per version (`epoch`, `seq`); every device keeps the latest per origin as its
+///   link map. Entries expire after `RelayPolicy.expiry(interval:)` of the interval their origin
+///   announced. An edge between two other devices counts only if both list each other; an edge
 ///   from this device counts while the lower transport is connected and the neighbour is not silent
-///   for `helloExpiry` (stalled link).
+///   for `helloExpiry` (stalled link). Links that carry nothing else get a keepalive every
+///   `keepaliveInterval`, so liveness does not depend on the hello interval.
+/// - **Records**: name and info (`RelayHello.Record`) travel only in the first hello after they
+///   changed (and after a start), in map sync to new neighbours and on request. A device that knows a
+///   hello whose info version it has no record for asks the origin (`recordRequest`, routed like
+///   data, at most once per `recordRequestGap`); the origin answers with a flooded hello carrying the
+///   record. Every hello names the info version, so a lost record is noticed at the next hello and
+///   asked for again; meanwhile the last known record (or the lower transport's view) stays in use.
+///   A device without any record and not visible directly is not reported to `Talk` yet.
 /// - **Routing**: shortest path over the map (BFS, ties by UUID), recomputed on every change. Relays
 ///   forward data whose destination is not themselves; no retransmission, `Talk`'s timeouts handle
 ///   loss.
@@ -43,6 +53,8 @@ final class RelayTransport: Transport {
 		var peer: TransportPeer?
 		/// Last frame received over the link (or when it connected).
 		var lastHeard: Duration
+		/// Last frame sent over the link (or when it connected), for keepalives.
+		var lastSent: Duration
 		var connectedAt: Duration?
 		/// Last data frame over the link, either direction, own or forwarded.
 		var lastData: Duration?
@@ -81,6 +93,14 @@ final class RelayTransport: Transport {
 		var hopLimit: UInt8
 		/// Local time of the last fresher hello.
 		let updated: Duration
+		/// Removed without a fresher hello for this long, from the interval its origin announced.
+		var expiry: Duration { RelayPolicy.expiry(interval: hello.interval) }
+	}
+
+	/// The latest name and info of an origin and the hello info version they belong to.
+	private struct KnownRecord {
+		let key: RelayHello.RecordKey
+		let record: RelayHello.Record
 	}
 
 	private struct Tombstone {
@@ -129,8 +149,13 @@ final class RelayTransport: Transport {
 	private var run = 0
 	private var epoch: UInt64 = 0
 	private var seq: UInt64 = 0
-	/// Payload of the last own hello, sent along with the map to new neighbours.
-	private var ownHello: Data?
+	/// The last own hello, sent with its record along with the map to new neighbours.
+	private var ownHello: RelayHello?
+	/// Own name and info as of `infoVersion`.
+	private var ownRecord = RelayHello.Record(name: "", info: [:])
+	private var infoVersion: UInt32 = 0
+	/// The next own hello carries the record (changed, or asked for).
+	private var recordPending = false
 	private var lastHelloAt: Duration?
 	private var periodicHello: TimerToken?
 	private var triggeredHello: TimerToken?
@@ -141,6 +166,11 @@ final class RelayTransport: Transport {
 	/// Live connected links as of the last refresh: the neighbours in our hello.
 	private var linked: [UUID] = []
 	private var entries: [UUID: Entry] = [:]
+	/// Kept while the origin has an entry or a tombstone, also across info versions until the new
+	/// record arrives.
+	private var records: [UUID: KnownRecord] = [:]
+	/// Last record request per origin.
+	private var recordRequests: [UUID: Duration] = [:]
 	private var tombstones: [UUID: Tombstone] = [:]
 	private var routes: [UUID: Route] = [:]
 	private var reported: [UUID: Reported] = [:]
@@ -194,6 +224,9 @@ final class RelayTransport: Transport {
 		seq = 0
 		lastHelloAt = nil
 		lower.start(info: info)
+		ownRecord = RelayHello.Record(name: localPeer.name, info: localPeer.info)
+		infoVersion = 1
+		recordPending = true
 		sendHello()
 		scheduleSweep()
 	}
@@ -210,10 +243,13 @@ final class RelayTransport: Transport {
 		sweepTimer = nil
 		lower.stop()
 		ownHello = nil
+		recordPending = false
 		visible = [:]
 		links = [:]
 		linked = []
 		entries = [:]
+		records = [:]
+		recordRequests = [:]
 		tombstones = [:]
 		routes = [:]
 		reported = [:]
@@ -233,6 +269,11 @@ final class RelayTransport: Transport {
 
 	func update(info: [String: String]) {
 		lower.update(info: info)
+		let record = RelayHello.Record(name: localPeer.name, info: localPeer.info)
+		guard isRunning, record != ownRecord else { return }
+		ownRecord = record
+		infoVersion &+= 1
+		recordPending = true
 		triggerHello()
 	}
 
@@ -241,6 +282,7 @@ final class RelayTransport: Transport {
 		let envelope = RelayEnvelope(kind: .data, hopLimit: RelayPolicy.hopLimit, origin: localPeer.id, destination: peer, payload: data)
 		try lower.send(envelope.encoded(), to: route.nextHop)
 		links[route.nextHop]?.lastData = timers.now
+		links[route.nextHop]?.lastSent = timers.now
 	}
 
 	// MARK: - Introspection and debug controls
@@ -268,7 +310,7 @@ final class RelayTransport: Transport {
 				routes[id].map { RelaySnapshot.Route(id: id, name: peer(id)?.name ?? "", hops: $0.hops, nextHop: $0.nextHop) }
 			},
 			map: entries.keys.sorted(by: Self.order).compactMap { id in
-				entries[id].map { RelaySnapshot.Entry(id: id, name: $0.hello.name, version: $0.hello.version, neighbours: $0.hello.neighbours, age: now - $0.updated) }
+				entries[id].map { RelaySnapshot.Entry(id: id, name: records[id]?.record.name ?? "", version: $0.hello.version, neighbours: $0.hello.neighbours, age: now - $0.updated) }
 			},
 			counters: currentCounters,
 			bufferedFrames: held.values.reduce(0) { $0 + $1.count },
@@ -279,7 +321,8 @@ final class RelayTransport: Transport {
 			flags: flags,
 			suppressed: suppressed.keys.sorted(by: Self.order),
 			bridgeCandidates: policy.bridgeCandidates.sorted(by: Self.order),
-			linkActions: linkActions
+			linkActions: linkActions,
+			helloInterval: ownHello?.interval ?? currentHelloInterval
 		)
 	}
 
@@ -302,10 +345,10 @@ final class RelayTransport: Transport {
 			visible[id] = nil
 			refresh()
 		case let .connecting(id):
-			links[id] = Link(isConnected: false, peer: nil, lastHeard: timers.now)
+			links[id] = Link(isConnected: false, peer: nil, lastHeard: timers.now, lastSent: timers.now)
 			refresh()
 		case let .connected(peer):
-			links[peer.id] = Link(isConnected: true, peer: peer, lastHeard: timers.now, connectedAt: timers.now)
+			links[peer.id] = Link(isConnected: true, peer: peer, lastHeard: timers.now, lastSent: timers.now, connectedAt: timers.now)
 			if let slots, slots.bridge > 0, links.values.count(where: \.isConnected) > slots.regular {
 				counters.bridgeConnects += 1
 				record(.bridge, peer.id)
@@ -342,6 +385,12 @@ final class RelayTransport: Transport {
 			receivedData(envelope, from: neighbour)
 		case .unlink:
 			receivedUnlink(envelope, from: neighbour)
+		case .keepalive:
+			guard envelope.origin == neighbour, envelope.destination == localPeer.id else {
+				return drop(.malformed, "keepalive from \(neighbour)")
+			}
+		case .recordRequest:
+			receivedRecordRequest(envelope, from: neighbour)
 		}
 	}
 
@@ -356,10 +405,13 @@ final class RelayTransport: Transport {
 		guard origin != localPeer.id else { return }
 		// copies of a known version are common: decide on the version before decoding
 		if let entry = entries[origin] {
-			guard version >= entry.hello.version else { return }
+			guard version >= entry.hello.version else {
+				return adoptRecord(from: envelope.payload, of: origin)
+			}
 			if version == entry.hello.version {
+				adoptRecord(from: envelope.payload, of: origin)	// map sync adds it to a known version
 				// a copy that took a shorter path: pass it on further than the first one could
-				guard envelope.hopLimit > entry.hopLimit else { return }
+				guard isRunning, let entry = entries[origin], envelope.hopLimit > entry.hopLimit else { return }
 				entries[origin]?.hopLimit = envelope.hopLimit
 				flood(envelope, except: neighbour)
 				return
@@ -376,12 +428,62 @@ final class RelayTransport: Transport {
 			topologyChangedAt = timers.now
 		}
 		entries[origin] = Entry(hello: hello, payload: envelope.payload, hopLimit: envelope.hopLimit, updated: timers.now)
+		let recordChanged = hello.record.map { store($0, key: hello.recordKey, of: origin) } ?? false
 		flood(envelope, except: neighbour)
 		// a periodic hello with nothing new only renews the entry
-		if let previous, previous.neighbours == hello.neighbours, previous.name == hello.name, previous.info == hello.info, previous.flags == hello.flags {
-			return
+		if let previous, previous.neighbours == hello.neighbours, previous.flags == hello.flags, !recordChanged {
+			return requestRecord(of: origin)
 		}
+		let run = self.run
 		refresh()
+		guard isRunning, self.run == run else { return }	// stopped from within `onEvent`
+		requestRecord(of: origin)
+	}
+
+	/// Takes the record of a hello that is not newer than the entry, if it is the one the entry lacks.
+	private func adoptRecord(from payload: Data, of origin: UUID) {
+		guard let entry = entries[origin], records[origin]?.key != entry.hello.recordKey, RelayHello.hasRecord(payload),
+			let hello = RelayHello(payload), hello.recordKey == entry.hello.recordKey, let record = hello.record
+		else { return }
+		if store(record, key: hello.recordKey, of: origin) {
+			refresh()
+		}
+	}
+
+	/// Keeps an origin's record; true if name or info changed.
+	private func store(_ record: RelayHello.Record, key: RelayHello.RecordKey, of origin: UUID) -> Bool {
+		let previous = records[origin]?.record
+		records[origin] = KnownRecord(key: key, record: record)
+		return previous != record
+	}
+
+	/// Asks the origin for the record of its latest hello if it is missing, at most once per
+	/// `recordRequestGap`; the next hello asks again if the answer got lost.
+	private func requestRecord(of origin: UUID) {
+		let now = timers.now
+		guard let entry = entries[origin], records[origin]?.key != entry.hello.recordKey,
+			let route = routes[origin],
+			recordRequests[origin].map({ now - $0 >= RelayPolicy.recordRequestGap }) ?? true
+		else { return }
+		recordRequests[origin] = now
+		let envelope = RelayEnvelope(kind: .recordRequest, hopLimit: RelayPolicy.hopLimit, origin: localPeer.id, destination: origin, payload: Data())
+		if transmitHeartbeat(envelope.encoded(), to: route.nextHop) {
+			counters.recordRequestsSent += 1
+		}
+	}
+
+	/// For us: the next hello carries our record (requests within `helloMinGap` share one). Otherwise
+	/// passed on towards its destination.
+	private func receivedRecordRequest(_ envelope: RelayEnvelope, from neighbour: UUID) {
+		guard envelope.destination == localPeer.id else {
+			return forward(envelope, isData: false)
+		}
+		guard envelope.origin != localPeer.id else {
+			return drop(.malformed, "record request from ourselves via \(neighbour)")
+		}
+		counters.recordRequestsReceived += 1
+		recordPending = true
+		triggerHello()
 	}
 
 	/// Forwards a hello to all connected links except the one it came from.
@@ -389,51 +491,70 @@ final class RelayTransport: Transport {
 		guard envelope.hopLimit > 1 else { return }
 		let data = envelope.forwarded().encoded()
 		for id in connectedLinks where id != neighbour {
-			if transmit(data, to: id) {
+			if transmitHeartbeat(data, to: id) {
 				counters.hellosForwarded += 1
 			}
 		}
 	}
 
-	/// A new neighbour gets our latest hello and the whole map right away.
+	/// A new neighbour gets our latest hello and the whole map right away, with every record known.
 	private func syncMap(to neighbour: UUID) {
 		if let ownHello {
-			let envelope = RelayEnvelope(kind: .hello, hopLimit: RelayPolicy.hopLimit, origin: localPeer.id, destination: RelayEnvelope.broadcast, payload: ownHello)
-			if transmit(envelope.encoded(), to: neighbour) {
+			let payload = ownHello.with(record: ownRecord).encoded()
+			let envelope = RelayEnvelope(kind: .hello, hopLimit: RelayPolicy.hopLimit, origin: localPeer.id, destination: RelayEnvelope.broadcast, payload: payload)
+			if transmitHeartbeat(envelope.encoded(), to: neighbour) {
 				counters.hellosSent += 1
 			}
 		}
 		for origin in entries.keys.sorted(by: Self.order) where origin != neighbour {
 			guard let entry = entries[origin], entry.hopLimit > 1 else { continue }
-			let envelope = RelayEnvelope(kind: .hello, hopLimit: entry.hopLimit - 1, origin: origin, destination: RelayEnvelope.broadcast, payload: entry.payload)
-			if transmit(envelope.encoded(), to: neighbour) {
+			var payload = entry.payload
+			if entry.hello.record == nil, let known = records[origin], known.key == entry.hello.recordKey {
+				payload = entry.hello.with(record: known.record).encoded()
+			}
+			let envelope = RelayEnvelope(kind: .hello, hopLimit: entry.hopLimit - 1, origin: origin, destination: RelayEnvelope.broadcast, payload: payload)
+			if transmitHeartbeat(envelope.encoded(), to: neighbour) {
 				counters.hellosForwarded += 1
 			}
 		}
 	}
 
+	/// Floods a new own hello, with the record if pending, and schedules the next periodic one after
+	/// the interval it announces.
 	private func sendHello() {
 		triggeredHello?.cancel()
 		triggeredHello = nil
 		seq += 1
 		let local = localPeer
-		let hello = RelayHello(name: local.name, info: local.info, version: RelayHello.Version(epoch: epoch, seq: seq), neighbours: linked, flags: flags)
-		let payload = hello.encoded()
-		ownHello = payload
-		let data = RelayEnvelope(kind: .hello, hopLimit: RelayPolicy.hopLimit, origin: local.id, destination: RelayEnvelope.broadcast, payload: payload).encoded()
+		let now = timers.now
+		let interval = currentHelloInterval
+		let hello = RelayHello(version: RelayHello.Version(epoch: epoch, seq: seq), neighbours: linked, flags: flags, interval: interval, infoVersion: infoVersion, record: recordPending ? ownRecord : nil)
+		ownHello = hello
+		let data = RelayEnvelope(kind: .hello, hopLimit: RelayPolicy.hopLimit, origin: local.id, destination: RelayEnvelope.broadcast, payload: hello.encoded()).encoded()
+		var sent = false
 		for id in connectedLinks {
-			if transmit(data, to: id) {
+			if transmitHeartbeat(data, to: id) {
 				counters.hellosSent += 1
+				sent = true
 			}
 		}
-		lastHelloAt = timers.now
+		// without any link the record waits for the next hello (new neighbours get it in map sync)
+		if hello.record != nil, sent {
+			recordPending = false
+		}
+		lastHelloAt = now
 		periodicHello?.cancel()
 		let run = self.run
-		periodicHello = timers.schedule(after: RelayPolicy.helloDelay(using: &random)) { [weak self] in
+		periodicHello = timers.schedule(after: RelayPolicy.helloDelay(interval: interval, using: &random)) { [weak self] in
 			guard let self, self.isRunning, self.run == run else { return }
 			self.periodicHello = nil
 			self.sendHello()
 		}
+	}
+
+	/// Base interval of the next periodic hello, from the devices in the map.
+	private var currentHelloInterval: Duration {
+		RelayPolicy.helloInterval(devices: entries.count + 1)
 	}
 
 	/// Sends a hello now, or once `helloMinGap` after the last one passed.
@@ -454,18 +575,7 @@ final class RelayTransport: Transport {
 		let local = localPeer.id
 		links[neighbour]?.lastData = timers.now
 		guard envelope.destination == local else {
-			guard envelope.hopLimit > 1 else {
-				return drop(.hopLimit, "data \(envelope.origin) → \(envelope.destination)")
-			}
-			guard let route = routes[envelope.destination] else {
-				return drop(.noRoute, "data \(envelope.origin) → \(envelope.destination)")
-			}
-			guard transmit(envelope.forwarded().encoded(), to: route.nextHop) else {
-				return drop(.sendFailed, "data \(envelope.origin) → \(envelope.destination) via \(route.nextHop)")
-			}
-			links[route.nextHop]?.lastData = timers.now
-			counters.dataForwarded += 1
-			return
+			return forward(envelope, isData: true)
 		}
 		guard envelope.origin != local else {
 			return drop(.malformed, "data from ourselves via \(neighbour)")
@@ -474,6 +584,26 @@ final class RelayTransport: Transport {
 			onEvent?(.received(envelope.payload, from: envelope.origin))
 		} else {
 			hold(envelope.payload, from: envelope.origin)
+		}
+	}
+
+	/// Passes a frame for another device on to the next hop of its route. Data marks the links as
+	/// busy (no voluntary drop); record requests count as heartbeat traffic.
+	private func forward(_ envelope: RelayEnvelope, isData: Bool) {
+		let what = isData ? "data" : "record request"
+		guard envelope.hopLimit > 1 else {
+			return drop(.hopLimit, "\(what) \(envelope.origin) → \(envelope.destination)")
+		}
+		guard let route = routes[envelope.destination] else {
+			return drop(.noRoute, "\(what) \(envelope.origin) → \(envelope.destination)")
+		}
+		let data = envelope.forwarded().encoded()
+		guard isData ? transmit(data, to: route.nextHop) : transmitHeartbeat(data, to: route.nextHop) else {
+			return drop(.sendFailed, "\(what) \(envelope.origin) → \(envelope.destination) via \(route.nextHop)")
+		}
+		if isData {
+			links[route.nextHop]?.lastData = timers.now
+			counters.dataForwarded += 1
 		}
 	}
 
@@ -501,7 +631,7 @@ final class RelayTransport: Transport {
 		let now = timers.now
 		var changed = false
 		for id in entries.keys.sorted(by: Self.order) {
-			guard let entry = entries[id], now - entry.updated >= RelayPolicy.helloExpiry else { continue }
+			guard let entry = entries[id], now - entry.updated >= entry.expiry else { continue }
 			changed = true
 			entries[id] = nil
 			counters.entriesExpired += 1
@@ -509,6 +639,8 @@ final class RelayTransport: Transport {
 			tombstones[id] = Tombstone(version: entry.hello.version, until: now + RelayPolicy.tombstoneDuration)
 		}
 		tombstones = tombstones.filter { $0.value.until > now }
+		records = records.filter { entries[$0.key] != nil || tombstones[$0.key] != nil }
+		recordRequests = recordRequests.filter { entries[$0.key] != nil }
 		for origin in held.keys.sorted(by: Self.order) {
 			guard let frames = held[origin] else { continue }
 			let expired = frames.prefix { now - $0.since >= RelayPolicy.bufferMaxAge }
@@ -526,6 +658,7 @@ final class RelayTransport: Transport {
 		}
 		maintainLinks()
 		guard isRunning, self.run == run else { return }
+		keepLinksAlive()
 		scheduleSweep()
 	}
 
@@ -639,10 +772,10 @@ final class RelayTransport: Transport {
 		return visible[id] != nil || links[id] != nil || entries[id] != nil ? .found : nil
 	}
 
-	/// Name and info: from the hello if there is one, otherwise from the lower transport.
+	/// Name and info: from the latest record if there is one, otherwise from the lower transport.
 	private func peer(_ id: UUID) -> TransportPeer? {
-		if let hello = entries[id]?.hello {
-			return TransportPeer(id: id, name: hello.name, info: hello.info)
+		if let record = records[id]?.record {
+			return TransportPeer(id: id, name: record.name, info: record.info)
 		}
 		return links[id]?.peer ?? visible[id] ?? reported[id]?.peer
 	}
@@ -752,6 +885,18 @@ final class RelayTransport: Transport {
 			guard isRunning, self.run == run else { return }
 		}
 		dropRedundant()
+	}
+
+	/// Sends a keepalive to every link in use that got nothing for `keepaliveInterval`.
+	private func keepLinksAlive() {
+		let now = timers.now
+		for id in connectedLinks {
+			guard let link = links[id], now - link.lastSent >= RelayPolicy.keepaliveInterval else { continue }
+			let envelope = RelayEnvelope(kind: .keepalive, hopLimit: 1, origin: localPeer.id, destination: id, payload: Data())
+			if transmitHeartbeat(envelope.encoded(), to: id) {
+				counters.keepalivesSent += 1
+			}
+		}
 	}
 
 	/// With every slot in use, unlinks the redundant neighbour with the highest map degree, once the
@@ -869,11 +1014,19 @@ final class RelayTransport: Transport {
 	private func transmit(_ data: Data, to neighbour: UUID) -> Bool {
 		do {
 			try lower.send(data, to: neighbour)
+			links[neighbour]?.lastSent = timers.now
 			return true
 		} catch {
 			logger.debug("sending to \(neighbour, privacy: .public) failed: \(String(describing: error), privacy: .public)")
 			return false
 		}
+	}
+
+	/// `transmit` for hellos, keepalives and record requests, counted in `heartbeatBytesSent`.
+	private func transmitHeartbeat(_ data: Data, to neighbour: UUID) -> Bool {
+		guard transmit(data, to: neighbour) else { return false }
+		counters.heartbeatBytesSent += data.count
+		return true
 	}
 
 	private func drop(_ reason: RelayCounters.Drop, _ detail: String) {
@@ -919,6 +1072,14 @@ struct RelayCounters: Sendable, Equatable {
 	var hellosReceived = 0
 	/// Hello frames passed on (flooding and map sync), per neighbour.
 	var hellosForwarded = 0
+	/// Keepalives sent to quiet links.
+	var keepalivesSent = 0
+	/// Record requests sent for origins whose record was missing, and requests for ours.
+	var recordRequestsSent = 0
+	var recordRequestsReceived = 0
+	/// Bytes of hellos (own, forwarded, map sync), keepalives and record requests sent, envelopes
+	/// included: the relay's background cost.
+	var heartbeatBytesSent = 0
 	/// Data frames passed on to the next hop.
 	var dataForwarded = 0
 	/// Map entries removed without a fresh hello for `helloExpiry`.
@@ -1001,4 +1162,6 @@ struct RelaySnapshot: Sendable, Equatable {
 	let bridgeCandidates: [UUID]
 	/// The latest `RelayPolicy.linkActionHistory` decisions, oldest first.
 	let linkActions: [LinkAction]
+	/// Base interval of the periodic hello as announced in our latest hello.
+	let helloInterval: Duration
 }

@@ -30,7 +30,7 @@ def make_state(label, others, *, node_id=None, route=None, neighbours=None, orig
         "app": {"label": label, "runID": run_id, "isRunning": running, "pid": 100, "uptime": 5.0},
         "talk": {"me": {"id": ids[label], "name": label}, "reachable": reachable,
                  "neighbours": [{"id": ids[n], "name": n} for n in (neighbours if neighbours is not None else others)],
-                 "slots": {"regular": 1, "bridge": 0, "regularCapacity": cap[0], "bridgeCapacity": cap[1]},
+                 "slots": {"regular": 1, "bridge": 0, "regularCapacity": cap[0], "bridgeCapacity": cap[1]}, "helloInterval": 3.0,
                  "counters": counters or {"entriesExpired": 0, "stalledDisconnects": 0, "drops": {}}, "transfers": transfers or []},
         "sample": {"soak": {"origins": origins or {}}, "transfers": {"sent": 0, "sendFailed": 0, "received": 0, "receivedBytes": 0}},
     }
@@ -175,8 +175,10 @@ class HelperTests(unittest.TestCase):
         self.assertEqual([e["type"] for e in rig.filter_run(lines, "x")], ["peer", "link.action"])
 
     def test_summarize_state_and_result(self):
-        summary = rig.summarize_state(make_state("a", ["b"]))
+        summary = rig.summarize_state(make_state("a", ["b"], counters={"heartbeatBytesSent": 900, "drops": {}}))
         self.assertEqual(summary["reachable"], {"b": 1})
+        self.assertEqual(summary["helloInterval"], 3.0)
+        self.assertEqual(summary["counters"], {"heartbeatBytesSent": 900})
         self.assertEqual(rig.summarize_state(None), {"error": True})
         result = rig.ScenarioResult("x")
         self.assertFalse(result.passed)  # nothing checked is not a pass
@@ -647,6 +649,7 @@ class ScenarioTests(unittest.TestCase):
         self.assertGreater(soak["unique"], 100)
         self.assertGreaterEqual(result.metrics["soakAdjusted"]["delivery"], 0.8)
         self.assertEqual(soak["duplicates"], 0)
+        self.assertEqual(set(result.metrics["heartbeatBytesPerSecond"]), {f"rig-{i}" for i in range(4)})
         self.assertTrue(result.metrics["darks"])
         self.assertIn("linkChanges", result.metrics)
         self.assertIsNotNone(result.metrics["healedAfterSeconds"])

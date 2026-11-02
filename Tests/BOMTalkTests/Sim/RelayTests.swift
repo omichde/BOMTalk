@@ -27,12 +27,38 @@ import Testing
 	}
 
 	@Test func helloRoundTrip() throws {
-		let hello = RelayHello(name: "Lobby iPad", info: ["role": "kiosk"], version: .init(epoch: 1_700_000_000_000, seq: 42), neighbours: [UUID(), UUID()], flags: .bridgeSlotFree)
-		#expect(RelayHello(hello.encoded()) == hello)
-		#expect(RelayHello(Data(hello.encoded().prefix(20))) == nil)
+		let record = RelayHello.Record(name: "Lobby iPad", info: ["role": "kiosk"])
+		let full = RelayHello(version: .init(epoch: 1_700_000_000_000, seq: 42), neighbours: [UUID(), UUID()], flags: .bridgeSlotFree, interval: .seconds(4.2), infoVersion: 7, record: record)
+		#expect(RelayHello(full.encoded()) == full)
+		#expect(RelayHello.hasRecord(full.encoded()))
+		let short = full.with(record: nil)
+		#expect(RelayHello(short.encoded()) == short)
+		#expect(!RelayHello.hasRecord(short.encoded()))
+		#expect(short.encoded().count == 8 + 8 + 1 + 1 + 4 + 1 + 2 * 16)
+		#expect(short.with(record: record) == full)
+		#expect(full.recordKey == RelayHello.RecordKey(epoch: 1_700_000_000_000, infoVersion: 7))
+		#expect(RelayHello(Data(full.encoded().prefix(20))) == nil)
+		#expect(RelayHello(short.encoded() + Data([0])) == nil)	// trailing bytes without a record
+		// whole 100 ms, 0.1 … 25.5 s
+		#expect(RelayHello(version: .init(epoch: 1, seq: 1), neighbours: [], interval: .milliseconds(3_049), infoVersion: 1).interval == .milliseconds(3_000))
+		#expect(RelayHello(version: .init(epoch: 1, seq: 1), neighbours: [], interval: .seconds(60), infoVersion: 1).interval == .milliseconds(25_500))
 		// restart: a new epoch wins over any seq of the old one
 		#expect(RelayHello.Version(epoch: 1, seq: 999) < RelayHello.Version(epoch: 2, seq: 1))
 		#expect(RelayHello.Version(epoch: 2, seq: 1) < RelayHello.Version(epoch: 2, seq: 2))
+	}
+
+	@Test func helloIntervalScales() {
+		#expect(RelayPolicy.helloInterval(devices: 1) == .seconds(3))
+		#expect(RelayPolicy.helloInterval(devices: 30) == .seconds(3))
+		#expect(RelayPolicy.helloInterval(devices: 50) == .seconds(5))
+		#expect(RelayPolicy.helloInterval(devices: 100) == .seconds(10))
+		#expect(RelayPolicy.helloInterval(devices: 500) == .seconds(15))
+		#expect(RelayPolicy.expiry(interval: .seconds(3)) == RelayPolicy.helloExpiry)
+		#expect(RelayPolicy.expiry(interval: .seconds(15)) == .seconds(50))
+		// more than 2.75 intervals even with full jitter
+		for interval in [Duration.seconds(3), .seconds(5), .seconds(15)] {
+			#expect(RelayPolicy.expiry(interval: interval) >= interval * (1 + RelayPolicy.helloJitter) * 2.75)
+		}
 	}
 
 	@Test func protocolVersionFiltersDiscoveryAndInvitations() {
@@ -231,7 +257,7 @@ import Testing
 		}
 		#expect(await net.run(until: gone, limit: RelayPolicy.helloExpiry + RelayPolicy.sweepInterval + slack))
 		// lost only on expiry, at most one hello interval after the last hello before the vanish
-		#expect(net.now - vanished >= RelayPolicy.helloExpiry - RelayPolicy.helloInterval * (1 + RelayPolicy.helloJitter))
+		#expect(net.now - vanished >= RelayPolicy.helloExpiry - RelayPolicy.minHelloInterval * (1 + RelayPolicy.helloJitter))
 		#expect(net[0].peers(.connected) == [1] && net[1].peers(.connected) == [0])
 		#expect(net[3].peers(.connected) == [4] && net[4].peers(.connected) == [3])
 		#expect(net.log.contains { $0.hasSuffix("d0 disconnected d4") })
@@ -339,7 +365,7 @@ import Testing
 		let window: Duration = .seconds(20)
 		await net.run(for: window)
 		let after = net.devices.map(\.relay.snapshot.counters)
-		let hellosPerOrigin = Int(window / (RelayPolicy.helloInterval * (1 - RelayPolicy.helloJitter))) + 1
+		let hellosPerOrigin = Int(window / (RelayPolicy.minHelloInterval * (1 - RelayPolicy.helloJitter))) + 1
 		for (old, new) in zip(before, after) {
 			#expect(new.dataForwarded == old.dataForwarded)
 			#expect(new.drops == old.drops)
@@ -457,6 +483,11 @@ extension SimNetwork {
 
 	/// Shortest path length over visible pairs, nil if unreachable.
 	func distance(_ a: Int, _ b: Int) -> Int? {
+		distances(from: a)[b]
+	}
+
+	/// Shortest path lengths from `a` to every device it reaches over visible pairs.
+	func distances(from a: Int) -> [Int: Int] {
 		var distances = [a: 0], queue = [a], next = 0
 		while next < queue.count {
 			let x = queue[next]
@@ -466,10 +497,13 @@ extension SimNetwork {
 				queue.append(y)
 			}
 		}
-		return distances[b]
+		return distances
 	}
 
 	var diameter: Int {
-		devices.indices.flatMap { a in devices.indices.map { distance(a, $0) ?? .max } }.max() ?? 0
+		devices.indices.map { a in
+			let distances = distances(from: a)
+			return distances.count == devices.count ? distances.values.max() ?? 0 : .max
+		}.max() ?? 0
 	}
 }

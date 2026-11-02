@@ -461,6 +461,9 @@ final class ControlCenter {
 		let counters = snapshot.counters
 		var now: [String: Int] = [
 			"hellosForwarded": counters.hellosForwarded,
+			"keepalivesSent": counters.keepalivesSent,
+			"recordRequestsSent": counters.recordRequestsSent,
+			"heartbeatBytesSent": counters.heartbeatBytesSent,
 			"dataForwarded": counters.dataForwarded,
 			"entriesExpired": counters.entriesExpired,
 			"voluntaryDrops": counters.voluntaryDrops,

@@ -4,7 +4,8 @@ Branch: `feature/relay`. Status: phase 1 (foundations), phase 2 (debug control l
 not yet run on simulators), phase 3 (RelayTransport), phase 4 (link policy) and phase 4b (flow control)
 done; `-autostart` in the Sample. Simulator rig runs analysed and their failure modes fixed (see
 "Findings from simulator rig runs" and its second and third rounds: radio reset, sends off the main
-actor, reset while linked for a cut-off minority).
+actor, reset while linked for a cut-off minority). Since then: the BOMTalk protocol version in `_v`
+and the lighter hello (see "Protocol version" and "Lighter hello").
 
 ## Problem
 
@@ -61,7 +62,8 @@ envelope size. Decide during implementation.
 ### Membership (hello)
 
 - Each device floods a hello every **3 s ± 20 % jitter**: own UUID, name, `info`, seq, list of direct
-  neighbour UUIDs, flags (bridge slot free).
+  neighbour UUIDs, flags (bridge slot free). *(Superseded, see "Lighter hello": name and info only when
+  they changed, interval 3–15 s by device count, expiry scaled with it.)*
 - Flooded with dedupe by `(origin, seq)`; every device keeps the latest hello per origin → full link
   map (link state). Size: 7 × 16 B neighbours + info (≤ ~300 B) – fine for dozens of devices.
 - **Triggered hello** immediately on any own neighbour change (plus the periodic one).
@@ -121,8 +123,9 @@ Each device keeps **6 regular links + 1 bridge link**.
 | | default |
 |---|---|
 | regular / bridge links | 6 / 1 |
-| hello interval | 3 s ± 20 % |
-| hello expiry | 10 s |
+| hello interval | 3 s ± 20 %; since the lighter hello `max(3 s, devices × 0.1 s)`, ≤ 15 s |
+| hello expiry | 10 s; since the lighter hello 10/3 of the announced interval, ≥ 10 s |
+| keepalive (quiet direct link) | 3 s |
 | triggered hello min gap | 500 ms |
 | minimum link age | 30 s |
 | voluntary drop rate | 1 / 10 s |
@@ -636,6 +639,85 @@ v2's `peers` as `.discovered` with `"_g": "3"` in `peer.info`, and v2 invited th
   `v2AndV3IgnoreEachOther` (v2's formats reproduced literally, v2's decode rules copied literally from
   `master`), `discoveryInfoBudget`, `mixedVersions` (another BOMTalk or app version: never listed,
   never invited, lists nobody).
+
+## Lighter hello (2026-11-02)
+
+Every device flooded a hello every 3 s ± 20 %, each forwarded over every link once, so per-link
+heartbeat traffic grew linearly with the device count. A hello was the 37 B envelope + epoch / seq /
+flags + 16 B per neighbour + name + info plist (up to ~300 B): roughly 200–500 B.
+
+**Format** (`RelayHello`, still BOMTalk protocol 3: v3 is unreleased, so the format changed without a
+bump): epoch (8), seq (8), flags (1, bit 7 = a record follows), interval (1, in 100 ms), info version
+(4), neighbour count (1), neighbours (16 each); then, only with the record bit, name (UInt16
+length-prefixed) and info (binary plist). A periodic hello is 37 + 23 + 16 × neighbours bytes, 85 B
+with 3 neighbours. Two new envelope kinds: `keepalive` (4) and `recordRequest` (5), both without
+payload.
+
+- **Identity split from liveness.** The info version counts changes of name or info per run; with the
+  epoch it identifies a record (`RecordKey`). The record travels in the first hello after a start
+  and after every change (it stays pending until a hello actually went out on a link), in map sync to
+  new neighbours (own hello and every entry whose record is known, re-encoded with it), and on request.
+- **Recovery: request to the origin.** Every hello names the info version, so a device notices a
+  missing or outdated record at the next hello of that origin. It then sends a `recordRequest`
+  routed to the origin like data (at most one per origin per `recordRequestGap` = 5 s); the origin
+  answers with its next hello carrying the record (a triggered hello: requests within 500 ms share
+  one flood, and everyone else lacking it gets it too). A lost answer is asked for again at the next
+  hello after the gap, so a missing record lasts at most about gap + one interval once a route
+  exists. A record that arrives with a copy of a known or older version (map sync, slow path) is
+  taken if it is the one the entry lacks. Meanwhile the last known record stays in use (stale info,
+  never no name), or, without any, the lower transport's view (direct neighbours: MPC display name
+  and discovery info). A device with neither is routed but not reported to `Talk` until its record
+  arrives (data from it is held for up to 5 s as before). Why not periodic full hellos (every Nth):
+  they cost bytes forever to cover a rare loss, and still leave a gap of N intervals; the request
+  costs nothing while nothing is lost and recovers within one interval.
+- `Talk` is unchanged: its `info` frames stay authoritative for connected peers (`Talk` keeps
+  `peer.info` on a `.found` while connected), the record supplies the name and the info of
+  discovered ones. `infoUpdateAcrossHops` checks both.
+- **Adaptive interval**: `max(3 s, devices × 0.1 s)`, capped at 15 s (devices = map entries + 1),
+  ± 20 % jitter, chosen when a hello goes out and announced in it, so the next periodic hello never
+  comes later than the announced interval allows. Triggered hellos stay immediate (min gap 500 ms).
+  Per link that is about 10 hellos per second at any size beyond 30 devices.
+- **Expiry** per origin from the interval it announced: `max(10 s, interval × 10/3)` (10 s at 3 s,
+  50 s at 15 s; ≥ 2.78 jittered intervals as before). Tombstones stay 30 s (they cover the time
+  between neighbours expiring the same entry, not the interval).
+- **Direct links**: liveness no longer depends on hellos. Any frame counts as before; a connected
+  link that carried nothing for `keepaliveInterval` (3 s, checked in the 1 s sweep) gets a keepalive.
+  So a link is heard at least every ~4 s (measured: longest gap 4.0 s at 150 devices), and the 10 s
+  liveness window, the 15 s stall rule and `RadioResetPolicy.liveness` (10 s) keep their meaning. Most
+  links carry forwarded hellos anyway; keepalives fill the gaps, e.g. a leaf's only link towards the
+  rest, which carries just the leaf's own hello.
+- **Relayed-peer loss** does not wait for the expiry: when a device vanishes, its neighbours notice
+  the link loss (MPC at once, or the 10 s liveness window) and send a triggered hello; edges need
+  both ends, so the route is gone everywhere within that time plus propagation (`disconnected` for
+  `Talk`). Only the map entry, and with it `lost`, waits for the expiry: 10 s up to 30 devices, 16.7 s
+  at 50, 33 s at 100, 50 s from 150.
+- Debug SPI: counters `keepalivesSent`, `recordRequestsSent`, `recordRequestsReceived`,
+  `heartbeatBytesSent` (hellos own / forwarded / map sync, keepalives, record requests, envelopes
+  included) and `helloInterval`; the Sample logs the new counters, the rig keeps `helloInterval` per
+  poll and reports `heartbeatBytesPerSecond` per instance in the soak.
+
+**Measured** (sim, `HelloTests`; info of ~140 B per device, link policy, converged, 60 s window; total
+bytes on the links divided by connected links and seconds, both directions; nothing but relay
+background traffic on the links):
+
+| devices | topology | links | before (B/s per link) | after (B/s per link) | interval |
+|---|---|---|---|---|---|
+| 10 | fully visible | 29 | 1960 | 868 | 3 s |
+| 30 | fully visible | 89 | 5771 | 2572 | 3 s |
+| 50 | fully visible | 150 | 9690 | 2619 | 5 s |
+| 150 | sparse random, degree ≤ 4 (75 s window) | 189 | 17895 | 1211 | 15 s |
+
+Up to 30 devices the gain is the record (a hello in this setup ~290 B → ~110 B with 3 neighbours);
+beyond, the interval keeps the rate flat. Scenarios: convergence, heal, two cliques, no flapping (30 devices, 10 minutes), dark every
+minute, wedged radios and all other sim tests pass with unchanged limits; at 150 devices nothing
+stalls, expires, drops or changes links over 75 s. New tests: `HelloTests` (bytes per link at
+10 / 30 / 50, capped interval at 150, a joiner whose record is lost: routed but not reported, asks,
+named after the loss ends; a lost info change: old info meanwhile, recovered 3.2 s later with one
+request; `Talk.info` across 3 hops), `helloRoundTrip`, `helloIntervalScales`.
+
+Limits: the record of a device that is never asked (nobody misses it) is never re-sent, by design. A
+requester without a route to the origin cannot ask; it has no route to report it either. Expiry at
+large sizes means a vanished device's `lost` comes up to 50 s after its `disconnected`.
 
 ## Open questions
 

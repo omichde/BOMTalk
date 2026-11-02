@@ -40,6 +40,8 @@ import Testing
 		#expect(entry.age >= 0 && entry.age < 10)
 		#expect(snapshot.peers.count == 3 && snapshot.peers.allSatisfy { $0.state == "connected" })
 		#expect(snapshot.counters.hellosSent > 0 && snapshot.counters.hellosReceived > 0)
+		#expect(snapshot.counters.heartbeatBytesSent > 0 && snapshot.counters.recordRequestsSent == 0)
+		#expect(snapshot.helloInterval == RelayPolicy.minHelloInterval.seconds)
 		#expect(snapshot.counters.drops.keys.sorted() == RelayCounters.Drop.allCases.map(\.rawValue).sorted())
 		#expect(snapshot.counters.entriesExpired == 0 && snapshot.counters.voluntaryDrops == 0)
 		let slots = try #require(snapshot.slots)

@@ -196,6 +196,8 @@ final class SimNetwork {
 	/// Violations of the `TransportEvent` ordering rules by any device's top transport, see
 	/// `TransportContract`. Each one is also recorded as a test issue.
 	private(set) var contractViolations: [String] = []
+	/// Bytes handed to connected links so far, all devices and directions.
+	private(set) var bytesSent = 0
 	/// Data on a connected link for which this returns true is accepted but never delivered (single
 	/// lost frames, e.g. acks).
 	var loses: ((_ data: Data, _ from: Int, _ to: Int) -> Bool)?
@@ -399,6 +401,11 @@ final class SimNetwork {
 		links[Pair(a, b)]?.isConnected ?? false
 	}
 
+	/// Connected session links (pairs).
+	var connectedLinks: Int {
+		links.values.count(where: \.isConnected)
+	}
+
 	/// Invitations sent between two devices so far, both directions.
 	func invitations(_ a: Int, _ b: Int) -> Int {
 		invitationCounts[Pair(a, b)] ?? 0
@@ -577,6 +584,7 @@ final class SimNetwork {
 		let pair = Pair(a, b)
 		guard orphans[Remote(index: a, handle: target)] == nil else { return }	// the remote has not noticed yet
 		guard let link = links[pair], link.isConnected, link.handles[b] == target else { throw SimError.notConnected }
+		bytesSent += data.count
 		guard !link.isBlackholed, loses?(data, a, b) != true else { return }
 		var delay = config.latency
 		if let bandwidth = config.bandwidth {

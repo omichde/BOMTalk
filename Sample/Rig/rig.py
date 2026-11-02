@@ -198,6 +198,7 @@ def summarize_state(state: Optional[dict]) -> dict:
         "neighbours": sorted(n["name"] for n in talk.get("neighbours", [])),
         "slots": talk.get("slots"),
         "issue": talk.get("issue"),
+        "helloInterval": talk.get("helloInterval"),
         "transfers": len(talk.get("transfers", [])),
         "counters": {k: v for k, v in counters.items() if k != "drops"},
         "drops": counters.get("drops", {}),
@@ -965,6 +966,8 @@ class Rig:
         result.metrics["expired"] = counter_delta(before, after, "entriesExpired")
         result.metrics["stalledDisconnects"] = counter_delta(before, after, "stalledDisconnects")
         result.metrics["voluntaryDrops"] = counter_delta(before, after, "voluntaryDrops")
+        result.metrics["heartbeatBytesPerSecond"] = {label: round(delta / max(minutes * 60, 1e-9))
+                                                     for label, delta in counter_delta(before, after, "heartbeatBytesSent").items()}
         result.metrics["minutes"] = minutes
         self.soak_minutes = minutes
 
