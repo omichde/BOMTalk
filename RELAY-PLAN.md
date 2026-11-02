@@ -2,8 +2,8 @@
 
 Branch: `feature/relay`. Status: phase 1 (foundations), phase 2 (debug control layer + rig script,
 not yet run on simulators), phase 3 (RelayTransport), phase 4 (link policy) and phase 4b (flow control)
-done; `-autostart` in the Sample. First simulator rig runs analysed and their failure modes fixed (see
-"Findings from simulator rig runs").
+done; `-autostart` in the Sample. Simulator rig runs analysed and their failure modes fixed (see
+"Findings from simulator rig runs" and its second round: radio reset, sends off the main actor).
 
 ## Problem
 
@@ -278,6 +278,78 @@ an unreachable device failed), stalls from `link.action stalled`.
   after the new one would make the machine invite the outdated handle until the browser loses it
   (not seen, but possible). Half-open links still cost the invitee a slot for 15 s. Long stalls
   behind blob data (blob run) are not addressed here.
+
+## Findings from simulator rig runs, second round (2026-11-02, after the fresh peer id fix)
+
+Runs `Sample/Rig/out/20261102-051125` (converge, 8 simulators, cap 7), `…-052510` (heal, cap 2),
+`…-053803` (soak cap 3: pass, healed 34 s after the last restart), `…-055335` (soak cap 7, 5 MB blobs).
+
+- **Wedged session.** In the converge run rig-4 linked to rig-0 and rig-3 within a second and got the
+  whole map from them (83 hellos received, routes to everyone), then nothing more passed in either
+  direction: rig-0 reported the link silent after 11 s, rig-4 cut both links as stalled at 21 s and
+  had sent only 5 hellos (sends kept failing). From then on every attempt of rig-4, in and out, with
+  all 7 peers ended at the 20 s watchdog; links that did connect (rig-2 at 87 s, rig-5 at 142 s) carried
+  a burst and went silent again within seconds. Everyone else connected among themselves. In the heal
+  run rig-0's only link went through rig-1; after rig-1 went dark, every attempt of rig-0 with
+  everyone hung (one own invitation at a time at cap 2, 20 s each) for more than 3 minutes. The same
+  as the manual test of 2026-11-01. Interpretation: after an abrupt loss, a device's `MCSession` can
+  stay wedged; BOMTalk cannot prevent it, but a fresh session (and peer id) gets out of it.
+- **Frozen instances under blob load.** In the blob soak rig-1 and rig-5 stopped answering within the
+  same half second (06:01:23), rig-0 a minute later, each for good: their event logs end there (the
+  1 s poll on the main actor never ran again), state polls timed out, and the rig aborted on
+  `rig-0: command dark failed: timed out` (30 s). No crash report. Not a slow main actor but a stopped
+  one (or a suspended process): the cause is not proven. The one call on the main actor that can block
+  for good is `MCSession.send` (it blocks while MPC's buffer for a peer is full; with a vanished or
+  wedged peer that can last), so it moved off the main actor; the lag probe and stall watchdog below
+  tell the two cases apart in the next run.
+
+**Fix:**
+
+- **Radio reset** (`RadioHealth`, `RadioResetPolicy`, `LinkTransport`). A *failure* is an attempt that
+  ended without connecting after ≥ 10 s (watchdog, invitation timeout; a quick decline proves the radio
+  works) or a link that died younger than 30 s (half open, or a burst then silence until the stall
+  detector cut it at 15–21 s). A *success* is data on a link ≥ 30 s old; it clears the failures and the
+  backoff. Reset when 3 failures with ≥ 2 distinct peers fall within 60 s, some peer is visible and no
+  link connected or carried data within the last 10 s. Why these values: one hanging peer is that
+  peer's problem (2 peers); at cap 2 a device has one own invitation pending at a time, so three
+  watchdog expiries take 40 s (60 s window); 30 s link age is longer than a stalled link takes to be
+  cut and equals the minimum age for a voluntary drop, so drops never count; 10 s is the relay's
+  liveness window. Backoff between resets 60 s, 120 s, 240 s, 300 s, reset by a success; no reset at all
+  while a link lives. The reset stops the radio, reports every peer `disconnected` (if pending or
+  connected) and `lost` (`MPCPeerMachine.forgetAll`, keeps policy and block list), and starts the radio
+  again after 1 s with a fresh session and peer id; `LinkTransport` stays running, the relay sees
+  ordinary drops and finds, the contract checker stays green. Counted in `RelayCounters.radioResets`
+  / `TalkDebugSnapshot.counters.radioResets` (via `LinkDebugControl`); the Sample logs `radio.reset`.
+  A milder first step (cancel all pending invitations and wait) is what the watchdog already did every
+  20 s for minutes without effect, so there is none.
+- **Sim**: `SimConfig.wedgeOnAbruptLoss` (devices whose session wedges when a linked remote stops) and
+  `SimNetwork.wedge(_:)`: every invitation from or to a wedged device hangs until its radio stops.
+  `RadioResetTests`: a wedged device in a full mesh of 8 joins after one reset in 22–27 s (seeds
+  70–72); at cap 2 the isolated end whose neighbours went dark recovers 42–64 s after they restart, one
+  reset (seeds 80–82); a bare link transport keeps the contract; plus `RadioHealth` unit tests.
+  Without the reset none of them recovers (60 s / 120 s limits). Healthy scenarios assert zero
+  resets: 16 and 30 fully visible (10 min), 40 random, churn, dark every minute at cap 3 (both handle
+  modes), and 30 % hanging invitations at cap 2 had none either.
+- **Responsiveness**: `MPCRadio` sends off the main actor, one serial queue per peer (`Outbox`), at most
+  `MPCPolicy.sendBacklog` (4 MB) waiting per peer (then `send` throws, like a full link); MPC's own send
+  errors are only logged (dead links show up in the session state and as silence). Incoming
+  `Transfer.completedBytes` moves in steps of `FlowControl.ackInterval` like outgoing (was every
+  chunk: one SwiftUI redraw per 64 KB per transfer); `Reassembler` no longer copies a transfer's
+  chunk dictionary on every chunk.
+- **Sample**: main actor lag probe (`MainActorProbe`, `LagStats`: 0.5 s timer, `app.mainLag` in
+  `/state`, `main.lag` every 10 s and `main.lag.spike` ≥ 1 s in the event log) plus a background
+  watchdog writing `main.stall` while the main actor does not run at all; `GET /state` answers 503 busy
+  from the server queue when the main actor does not get to it within 3 s; the state is encoded off
+  the main actor; commands with a `requestID` run once (retries get the cached reply or `inProgress`).
+- **Rig**: commands get 15 s per attempt (`ping` / `chat` 60 s), 3 attempts with one request id;
+  `dark`, `resetStats` and `soak` in soak / heal are not fatal without an answer (outcome unknown,
+  recorded); the soak fails if an instance leaves polls unanswered for more than `--max-silence`
+  (60 s) and reports `longestSilenceSeconds`, `busyReplies`, `unansweredCommands`, `mainLag`.
+- Remaining: the wedge is modelled as hanging invitations only (the rig also showed links that
+  connect and then carry nothing; covered by the young-link-death rule and its unit test, not by a sim
+  scenario). A device that is wedged while it still has one working link never resets (by design).
+  The real cause of the frozen instances is unproven; the next blob soak's `main.stall` / `main.lag`
+  events decide whether it was the main actor or the process.
 
 ## Phases
 
