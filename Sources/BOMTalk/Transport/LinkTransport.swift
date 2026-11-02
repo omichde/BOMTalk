@@ -14,6 +14,11 @@ import os
 /// whole stack runs on virtual time in tests.
 ///
 /// `LinkControl` lets the relay above steer admission (`LinkPolicy`) and drop single links.
+///
+/// A radio that looks wedged (`RadioHealth`: attempts with several peers keep hanging while no link
+/// works) is stopped and started again with a fresh session, after `RadioResetPolicy.pause`. The
+/// transport stays running meanwhile; the layer above sees every peer `disconnected` and `lost`,
+/// then found again by the new radio.
 @MainActor
 final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugControl {
 
@@ -38,6 +43,11 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	/// unblocking can replay what was hidden.
 	private(set) var blockedNames: Set<String> = []
 	private var sighted: [Radio.Handle: [String: String]] = [:]
+	private var health = RadioHealth()
+	/// A `RadioHealth` check due on a clean stack, after a failure.
+	private var healthCheck: TimerToken?
+	/// Starts the radio again after a reset; set during the pause.
+	private var radioResume: TimerToken?
 
 	init(radio: Radio, localID: UUID, displayName: String, appID: String, protocolVersion: Int, timers: any Timers, maxPeers: Int = MPCPolicy.maxRemotePeers, generation: Int = RelayPolicy.generation) {
 		self.radio = radio
@@ -67,10 +77,15 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 		isRunning = false
 		advertiserRestart?.cancel()
 		advertiserRestart = nil
+		healthCheck?.cancel()
+		healthCheck = nil
+		radioResume?.cancel()
+		radioResume = nil
 		radio.stop()
 		machine.reset()
 		queue = []
 		sighted = [:]
+		health.restart()
 	}
 
 	/// Restarts the advertiser at most once per `advertiserRestartDelay`, with the latest info.
@@ -110,6 +125,8 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 	}
 
 	// MARK: - LinkDebugControl
+
+	var radioResets: Int { health.resets }
 
 	func setBlockedNames(_ names: Set<String>) {
 		guard names != blockedNames else { return }
@@ -194,6 +211,9 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 			}
 			switch action {
 			case let .emit(event):
+				if health.observe(event, at: timers.now) {
+					scheduleHealthCheck()
+				}
 				onEvent?(event)
 			case let .invite(handle):
 				radio.invite(handle, context: invitationContext, timeout: MPCPolicy.inviteTimeout)
@@ -206,6 +226,35 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 				}
 			}
 		}
+	}
+
+	// MARK: - Radio reset
+
+	private func scheduleHealthCheck() {
+		guard healthCheck == nil, radioResume == nil else { return }
+		healthCheck = timers.schedule(after: .zero) { [weak self] in
+			guard let self else { return }
+			self.healthCheck = nil
+			self.resetRadioIfWedged()
+		}
+	}
+
+	/// Stops the radio, reports every peer gone and starts the radio again after the pause.
+	private func resetRadioIfWedged() {
+		guard isRunning, radioResume == nil, health.shouldReset(at: timers.now, peersVisible: machine.hasVisiblePeers) else { return }
+		health.didReset(at: timers.now)
+		logger.warning("radio looks wedged, resetting it (reset \(self.health.resets))")
+		advertiserRestart?.cancel()
+		advertiserRestart = nil
+		radio.stop()
+		sighted = [:]
+		radioResume = timers.schedule(after: RadioResetPolicy.pause) { [weak self] in
+			guard let self else { return }
+			self.radioResume = nil
+			guard self.isRunning else { return }
+			self.radio.start(discoveryInfo: self.discoveryInfo)
+		}
+		perform(machine.forgetAll())
 	}
 
 	private var discoveryInfo: [String: String] {

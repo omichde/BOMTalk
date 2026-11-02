@@ -54,6 +54,11 @@ struct SimConfig {
 	/// Probability that an accepted invitation ends half open: the invitee reports `connected` but
 	/// nothing passes the link, the inviter reports `notConnected` after the handshake.
 	var halfOpenProbability = 0.0
+	/// Devices whose session wedges when a linked remote stops abruptly: from then on every
+	/// invitation from or to the device hangs (like `hangProbability`) until its radio restarts.
+	/// Rig runs: one device's attempts with everyone hung for minutes after such a loss. See also
+	/// `SimNetwork.wedge(_:)`.
+	var wedgeOnAbruptLoss: Set<Int> = []
 }
 
 /// Deterministic generator (SplitMix64).
@@ -90,7 +95,7 @@ struct SeededGenerator: RandomNumberGenerator {
 /// - **Handles**: a session link, an invitation and a sighting belong to the handles the devices had
 ///   then; a device that restarted with a fresh handle is a different peer on the radio.
 /// - **Failure modes** (`SimConfig`, off by default): late loss detection, stale sessions after a
-///   restart with the same handle, hanging invitations, half-open links.
+///   restart with the same handle, hanging invitations, half-open links, wedged sessions.
 ///
 /// Every callback goes through the timers, so it arrives on a later turn, like MPC's main-queue hop.
 /// Nothing iterates hashed collections in an order-dependent way: same seed, same event order.
@@ -204,6 +209,8 @@ final class SimNetwork {
 	private var orphans: [Remote: TimerToken] = [:]
 	/// Until when invitations between a remote and a handle hang (`staleSession`).
 	private var stale: [Remote: Duration] = [:]
+	/// Devices whose session is wedged until their radio restarts (`wedgeOnAbruptLoss`, `wedge(_:)`).
+	private(set) var wedged: Set<Int> = []
 	/// Invitations that hung (stale session or `hangProbability`), half-open links.
 	private(set) var hungInvitations = 0
 	private(set) var halfOpenLinks = 0
@@ -367,6 +374,12 @@ final class SimNetwork {
 		refreshDiscovery()
 	}
 
+	/// Wedges the device's session: every invitation from or to it hangs until its radio stops (a
+	/// stop and start of the device, or a radio reset by its link transport).
+	func wedge(_ index: Int) {
+		wedged.insert(index)
+	}
+
 	/// Remote peers in the session of a device, connecting or connected.
 	func sessionPeers(_ index: Int) -> [Int] {
 		links.keys.filter { $0.low == index || $0.high == index }.map { $0.other(index) }.sorted()
@@ -455,6 +468,7 @@ final class SimNetwork {
 	/// `staleSession`, invitations between the device's handle and remotes it had a link or a pending
 	/// invitation with hang for that long.
 	func radioStopped(_ index: Int) {
+		wedged.remove(index)
 		for edge in invites.keys.filter({ $0.from == index || $0.to == index }).sorted(by: Self.edgeOrder) {
 			guard let invite = invites[edge] else { continue }
 			if let staleSession = config.staleSession {
@@ -471,6 +485,9 @@ final class SimNetwork {
 		for pair in links.keys.filter({ $0.low == index || $0.high == index }).sorted(by: Self.pairOrder) {
 			guard let link = links[pair], let handle = link.handles[index] else { continue }
 			let other = pair.other(index)
+			if config.wedgeOnAbruptLoss.contains(other) {
+				wedged.insert(other)
+			}
 			if let staleSession = config.staleSession {
 				stale[Remote(index: other, handle: handle)] = timers.now + staleSession
 			}
@@ -671,9 +688,12 @@ final class SimNetwork {
 		devices[index].radio.localHandle
 	}
 
-	/// Stale session on either side, or bad luck (`hangProbability`).
+	/// A wedged session or a stale one on either side, or bad luck (`hangProbability`).
 	private func hangs(from: SimHandle, to target: SimHandle) -> Bool {
 		let now = timers.now
+		if wedged.contains(from.index) || wedged.contains(target.index) {
+			return true
+		}
 		if let until = stale[Remote(index: target.index, handle: from)], until > now {
 			return true
 		}

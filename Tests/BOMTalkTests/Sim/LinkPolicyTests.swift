@@ -32,6 +32,7 @@ import Testing
 			#expect(net.maxLinks <= MPCPolicy.maxRemotePeers)
 		}
 		#expect(net.allConnected)
+		#expect(net.totalCounters.radioResets == 0)
 		#expect(net.capRefusals == 0)
 		net.checkDropTiming()
 		#expect(net.contractViolations.isEmpty)
@@ -97,6 +98,7 @@ import Testing
 		#expect(net.totalCounters.voluntaryDrops == drops)
 		#expect(net.linkChanges.count == changes)
 		#expect(changes <= 4 * net.devices.count)
+		#expect(net.totalCounters.radioResets == 0)
 		#expect(net.maxLinks <= MPCPolicy.maxRemotePeers)
 		#expect(net.capRefusals == 0)
 		net.checkDropTiming()
@@ -153,6 +155,7 @@ import Testing
 		#expect(net.totalCounters.voluntaryDrops == drops)
 		#expect(net.allConnected)
 		#expect(settled - quiet <= .seconds(4 * 60))
+		#expect(net.totalCounters.radioResets == 0)
 		#expect(net.maxLinks <= MPCPolicy.maxRemotePeers)
 		#expect(net.capRefusals == 0)
 		net.checkDropTiming()
@@ -327,6 +330,7 @@ extension SimNetwork {
 			total.bridgeConnects += counters.bridgeConnects
 			total.unlinksSent += counters.unlinksSent
 			total.unlinksReceived += counters.unlinksReceived
+			total.radioResets += counters.radioResets
 		}
 	}
 

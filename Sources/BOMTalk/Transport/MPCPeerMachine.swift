@@ -78,6 +78,24 @@ struct MPCPeerMachine<Handle: Hashable> {
 		peers = [:]
 	}
 
+	/// Forgets all peers like `reset()`, for a radio reset while running: every peer is reported
+	/// `disconnected` (if pending or connected) and `lost`, in UUID order.
+	mutating func forgetAll() -> [Action] {
+		for record in peers.values.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+			if record.state != .idle {
+				emit(.disconnected(record.id))
+			}
+			emit(.lost(record.id))
+		}
+		peers = [:]
+		return take()
+	}
+
+	/// Whether the browser currently sees any peer.
+	var hasVisiblePeers: Bool {
+		peers.values.contains { $0.isVisible }
+	}
+
 	/// The handle to send to, nil unless connected.
 	func sendHandle(for id: UUID) -> Handle? {
 		guard let record = peers[id], record.state == .connected else { return nil }

@@ -36,11 +36,14 @@ protocol LinkControl: AnyObject {
 	func disconnect(_ id: UUID)
 }
 
-/// Debug controls of a link transport (`Talk`'s Debug SPI, simulator rigs): ignore devices by name.
+/// Debug controls and statistics of a link transport (`Talk`'s Debug SPI, simulator rigs): ignore
+/// devices by name, radio resets.
 @MainActor
 protocol LinkDebugControl: AnyObject {
 	/// Display names of devices that are treated as invisible: not found, not invited, their
 	/// invitations declined, existing links dropped. An empty set unblocks them again.
 	var blockedNames: Set<String> { get }
 	func setBlockedNames(_ names: Set<String>)
+	/// Times the transport reset its radio because it looked wedged (`RadioHealth`).
+	var radioResets: Int { get }
 }

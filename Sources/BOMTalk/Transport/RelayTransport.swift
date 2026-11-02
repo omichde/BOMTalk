@@ -270,7 +270,7 @@ final class RelayTransport: Transport {
 			map: entries.keys.sorted(by: Self.order).compactMap { id in
 				entries[id].map { RelaySnapshot.Entry(id: id, name: $0.hello.name, version: $0.hello.version, neighbours: $0.hello.neighbours, age: now - $0.updated) }
 			},
-			counters: counters,
+			counters: currentCounters,
 			bufferedFrames: held.values.reduce(0) { $0 + $1.count },
 			slots: slots.map { slots in
 				let used = links.count
@@ -281,6 +281,13 @@ final class RelayTransport: Transport {
 			bridgeCandidates: policy.bridgeCandidates.sorted(by: Self.order),
 			linkActions: linkActions
 		)
+	}
+
+	/// Own counters plus the lower transport's radio resets.
+	private var currentCounters: RelayCounters {
+		var counters = self.counters
+		counters.radioResets = (lower as? any LinkDebugControl)?.radioResets ?? 0
+		return counters
 	}
 
 	// MARK: - Lower events
@@ -924,6 +931,8 @@ struct RelayCounters: Sendable, Equatable {
 	var bridgeConnects = 0
 	var unlinksSent = 0
 	var unlinksReceived = 0
+	/// Times the lower transport reset its wedged radio (`LinkDebugControl.radioResets`).
+	var radioResets = 0
 
 	subscript(drop: Drop) -> Int { drops[drop] ?? 0 }
 }

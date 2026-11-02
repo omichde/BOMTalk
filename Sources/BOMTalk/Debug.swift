@@ -77,6 +77,8 @@ public struct TalkDebugSnapshot: Sendable, Codable, Equatable {
 		public let bridgeConnects: Int
 		public let unlinksSent: Int
 		public let unlinksReceived: Int
+		/// Times the link layer reset its radio because every attempt kept hanging.
+		public let radioResets: Int
 	}
 
 	/// Lower links in use per slot kind, and the capacity of each.
@@ -172,7 +174,8 @@ extension Talk {
 				stalledDisconnects: counters.stalledDisconnects,
 				bridgeConnects: counters.bridgeConnects,
 				unlinksSent: counters.unlinksSent,
-				unlinksReceived: counters.unlinksReceived
+				unlinksReceived: counters.unlinksReceived,
+				radioResets: counters.radioResets
 			),
 			slots: snapshot?.slots.map { .init(regular: $0.regular, bridge: $0.bridge, regularCapacity: $0.capacity.regular, bridgeCapacity: $0.capacity.bridge) },
 			suppressed: snapshot?.suppressed ?? [],

@@ -108,6 +108,7 @@ import Testing
 		#expect(monitor.worstIsolated <= .seconds(30))
 		#expect(monitor.worstStarved <= .seconds(10))
 		#expect(!net.devices.contains { $0.isStarved })
+		#expect(net.totalCounters.radioResets == 0)	// hanging attempts, but never with every peer
 		#expect(net.maxLinks <= 3)
 		#expect(net.capRefusals == 0)
 		#expect(net.contractViolations.isEmpty)
