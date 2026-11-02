@@ -35,6 +35,25 @@ struct SimConfig {
 	var window = FlowControl.window
 	/// … and over all transfers to one peer.
 	var peerWindow = FlowControl.peerWindow
+
+	// MARK: MPC failure modes seen in simulator rig runs (all off by default)
+
+	/// A new handle on every start, like `MPCRadio` (fresh `MCPeerID` per start). False: one handle for
+	/// all runs, like the archived peer id before.
+	var freshHandles = true
+	/// How long a remote takes to notice that a device stopped (MPC reports an abrupt loss late). Until
+	/// then its link stays up on the remote's side: sending succeeds, nothing arrives. Nil: at once.
+	var lossDetection: Duration?
+	/// After a device stopped, invitations between a remote that had a session link or a pending
+	/// invitation with it and the same handle hang this long (MPC on the remote still holds the old session for that peer id,
+	/// `GCKSession … Timed out, enforcing clean up`). Nil: no stale sessions.
+	var staleSession: Duration?
+	/// Probability that an invitation is never answered: neither the invitee nor the inviter hears
+	/// anything, not even the invitation timeout (the peer machine's watchdog ends it).
+	var hangProbability = 0.0
+	/// Probability that an accepted invitation ends half open: the invitee reports `connected` but
+	/// nothing passes the link, the inviter reports `notConnected` after the handshake.
+	var halfOpenProbability = 0.0
 }
 
 /// Deterministic generator (SplitMix64).
@@ -68,6 +87,10 @@ struct SeededGenerator: RandomNumberGenerator {
 /// - **Data** arrives after `latency`, in order per link; sending on a link that is not connected throws.
 ///   With `bandwidth`, each link direction is one FIFO queue: a frame goes out only after everything
 ///   sent before it on that link (hellos wait behind queued chunks, like in MPC's reliable queue).
+/// - **Handles**: a session link, an invitation and a sighting belong to the handles the devices had
+///   then; a device that restarted with a fresh handle is a different peer on the radio.
+/// - **Failure modes** (`SimConfig`, off by default): late loss detection, stale sessions after a
+///   restart with the same handle, hanging invitations, half-open links.
 ///
 /// Every callback goes through the timers, so it arrives on a later turn, like MPC's main-queue hop.
 /// Nothing iterates hashed collections in an order-dependent way: same seed, same event order.
@@ -113,15 +136,33 @@ final class SimNetwork {
 	}
 
 	private final class Link {
+		/// Handle of each end when the link was created.
+		let handles: [Int: SimHandle]
 		var isConnected = false
 		var isBlackholed = false
+		/// Half open (`halfOpenProbability`): only this end, the invitee, has the link.
+		var halfOpenEnd: Int?
+
+		var isHalfOpen: Bool { halfOpenEnd != nil }
 		/// Per sending device: when its queued data has gone out (with `bandwidth`).
 		var busyUntil: [Int: Duration] = [:]
+
+		init(handles: [Int: SimHandle]) {
+			self.handles = handles
+		}
 	}
 
 	private struct Invite {
 		let id: Int
-		let timeout: TimerToken
+		let timeout: TimerToken?
+		let from: SimHandle
+		let target: SimHandle
+	}
+
+	/// A device and a handle of another device it had a session link with.
+	private struct Remote: Hashable {
+		let index: Int
+		let handle: SimHandle
 	}
 
 	/// A session link between two devices came up (`connected`) or a connected one went down.
@@ -133,7 +174,8 @@ final class SimNetwork {
 	}
 
 	let timers = ManualTimers()
-	let config: SimConfig
+	/// Failure probabilities may change while running.
+	var config: SimConfig
 	private(set) var devices: [SimDevice] = []
 	/// Transport events of all devices, `"<ms> d<i> <event> d<j>"`.
 	private(set) var log: [String] = []
@@ -151,12 +193,20 @@ final class SimNetwork {
 	private var rng: SeededGenerator
 	private var visible: Set<Pair> = []
 	private var vanished: Set<Int> = []
-	private var discovered: Set<Edge> = []
+	/// Sightings by browser and the handle reported.
+	private var discovered: [Edge: SimHandle] = [:]
 	private var pendingFound: [Edge: TimerToken] = [:]
 	private var links: [Pair: Link] = [:]
 	private var invites: [Edge: Invite] = [:]
 	private var lastInvite = 0
 	private var invitationCounts: [Pair: Int] = [:]
+	/// Links of stopped devices that their remotes have not noticed yet (`lossDetection`).
+	private var orphans: [Remote: TimerToken] = [:]
+	/// Until when invitations between a remote and a handle hang (`staleSession`).
+	private var stale: [Remote: Duration] = [:]
+	/// Invitations that hung (stale session or `hangProbability`), half-open links.
+	private(set) var hungInvitations = 0
+	private(set) var halfOpenLinks = 0
 
 	/// - Parameters:
 	///   - talk: Wraps every device in a `Talk` (not started).
@@ -322,6 +372,11 @@ final class SimNetwork {
 		links.keys.filter { $0.low == index || $0.high == index }.map { $0.other(index) }.sorted()
 	}
 
+	/// Session slots in use on a device: its links plus links of stopped devices it has not noticed.
+	private func sessionLoad(_ index: Int) -> Int {
+		sessionPeers(index).count + orphans.keys.count { $0.index == index }
+	}
+
 	func isConnected(_ a: Int, _ b: Int) -> Bool {
 		links[Pair(a, b)]?.isConnected ?? false
 	}
@@ -396,61 +451,110 @@ final class SimNetwork {
 
 	/// Like `MCSession.disconnect()` plus stopping advertiser and browser: remote peers report
 	/// `notConnected` and lose the device; own pending invitations are withdrawn silently.
+	/// With `lossDetection`, remotes keep their side of each link for that long (`orphans`); with
+	/// `staleSession`, invitations between the device's handle and remotes it had a link or a pending
+	/// invitation with hang for that long.
 	func radioStopped(_ index: Int) {
-		for edge in invites.keys.filter({ $0.from == index }).sorted(by: Self.edgeOrder) {
-			invites.removeValue(forKey: edge)?.timeout.cancel()
+		for edge in invites.keys.filter({ $0.from == index || $0.to == index }).sorted(by: Self.edgeOrder) {
+			guard let invite = invites[edge] else { continue }
+			if let staleSession = config.staleSession {
+				let (remote, handle) = edge.from == index ? (edge.to, invite.from) : (edge.from, invite.target)
+				stale[Remote(index: remote, handle: handle)] = timers.now + staleSession
+			}
+			if edge.from == index {
+				invites.removeValue(forKey: edge)?.timeout?.cancel()
+			}
+		}
+		for remote in orphans.keys.filter({ $0.index == index }) {
+			orphans.removeValue(forKey: remote)?.cancel()
 		}
 		for pair in links.keys.filter({ $0.low == index || $0.high == index }).sorted(by: Self.pairOrder) {
-			dropLink(pair)
+			guard let link = links[pair], let handle = link.handles[index] else { continue }
+			let other = pair.other(index)
+			if let staleSession = config.staleSession {
+				stale[Remote(index: other, handle: handle)] = timers.now + staleSession
+			}
+			guard let lossDetection = config.lossDetection, (link.halfOpenEnd ?? other) == other else {
+				dropLink(pair)
+				continue
+			}
+			links[pair] = nil
+			if link.isConnected, !link.isHalfOpen {
+				linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: false))
+			}
+			let remote = Remote(index: other, handle: handle)
+			orphans[remote] = timers.schedule(after: lossDetection) { [unowned self] in
+				guard orphans.removeValue(forKey: remote) != nil else { return }
+				post(other) { .state(handle, .notConnected) }
+			}
 		}
 		refreshDiscovery()
 	}
 
 	/// Browsers that see the device report it again with the new info.
 	func advertiserRestarted(_ index: Int) {
-		for browser in devices.indices where discovered.contains(Edge(from: browser, to: index)) {
+		for browser in devices.indices where discovered[Edge(from: browser, to: index)] != nil {
 			let edge = Edge(from: browser, to: index)
 			post(browser, after: discoveryDelay()) { [unowned self] in
-				guard discovered.contains(edge) else { return nil }
-				return .found(devices[index].radio.localHandle, discoveryInfo: devices[index].radio.discoveryInfo)
+				guard let handle = discovered[edge] else { return nil }
+				return .found(handle, discoveryInfo: devices[index].radio.discoveryInfo)
 			}
 		}
 	}
 
-	func invite(from a: Int, to b: Int, context: Data?, timeout: TimeInterval) {
+	/// Invites `target`; an outdated handle of a device (it restarted with a fresh one) times out.
+	func invite(from a: Int, to target: SimHandle, context: Data?, timeout: TimeInterval) {
+		let b = target.index
 		let edge = Edge(from: a, to: b)
-		invites.removeValue(forKey: edge)?.timeout.cancel()
+		invites.removeValue(forKey: edge)?.timeout?.cancel()
 		invitationCounts[Pair(a, b), default: 0] += 1
 		lastInvite += 1
 		let id = lastInvite
+		let from = handle(a)
+		guard !hangs(from: from, to: target) else {
+			hungInvitations += 1
+			invites[edge] = Invite(id: id, timeout: nil, from: from, target: target)	// silent until cancelled
+			return
+		}
 		let token = timers.schedule(after: .seconds(timeout)) { [unowned self] in
 			guard invites[edge]?.id == id else { return }
 			invites[edge] = nil
-			post(a) { .state(SimHandle(index: b), .notConnected) }
+			post(a) { .state(target, .notConnected) }
 		}
-		invites[edge] = Invite(id: id, timeout: token)
+		invites[edge] = Invite(id: id, timeout: token, from: from, target: target)
 		timers.schedule(after: config.latency) { [unowned self] in
-			guard invites[edge]?.id == id, canSee(a, b) else { return }	// out of range: times out
-			let target = devices[b].radio
+			guard invites[edge]?.id == id, canSee(a, b), handle(b) == target else { return }	// out of range: times out
+			let radio = devices[b].radio
 			let reply: @MainActor (Bool) -> Void = { [unowned self] accept in
 				answer(edge, id: id, accept: accept)
 			}
-			target.deliver(.invitation(SimHandle(index: a), context: context, reply: reply), run: target.run)
+			radio.deliver(.invitation(from, context: context, reply: reply), run: radio.run)
 		}
 	}
 
-	/// Like `cancelConnectPeer`: withdraws a pending invitation and drops the link, pending or connected.
-	func cancel(from a: Int, to b: Int) {
-		if let invite = invites.removeValue(forKey: Edge(from: a, to: b)) {
-			invite.timeout.cancel()
-			post(a) { .state(SimHandle(index: b), .notConnected) }
+	/// Like `cancelConnectPeer`: withdraws a pending invitation and drops the link, pending or connected,
+	/// as far as they belong to `target`.
+	func cancel(from a: Int, to target: SimHandle) {
+		let b = target.index
+		if let invite = invites[Edge(from: a, to: b)], invite.target == target {
+			invites[Edge(from: a, to: b)] = nil
+			invite.timeout?.cancel()
+			post(a) { .state(target, .notConnected) }
 		}
-		dropLink(Pair(a, b))
+		if let orphan = orphans.removeValue(forKey: Remote(index: a, handle: target)) {
+			orphan.cancel()
+			post(a) { .state(target, .notConnected) }
+		}
+		if links[Pair(a, b)]?.handles[b] == target {
+			dropLink(Pair(a, b))
+		}
 	}
 
-	func send(_ data: Data, from a: Int, to b: Int) throws {
+	func send(_ data: Data, from a: Int, to target: SimHandle) throws {
+		let b = target.index
 		let pair = Pair(a, b)
-		guard let link = links[pair], link.isConnected else { throw SimError.notConnected }
+		guard orphans[Remote(index: a, handle: target)] == nil else { return }	// the remote has not noticed yet
+		guard let link = links[pair], link.isConnected, link.handles[b] == target else { throw SimError.notConnected }
 		guard !link.isBlackholed, loses?(data, a, b) != true else { return }
 		var delay = config.latency
 		if let bandwidth = config.bandwidth {
@@ -459,9 +563,10 @@ final class SimNetwork {
 			link.busyUntil[a] = done
 			delay += done - timers.now
 		}
+		let from = link.handles[a] ?? handle(a)
 		post(b, after: delay) { [unowned self] in
 			guard links[pair] === link, !link.isBlackholed else { return nil }
-			return .data(data, from: SimHandle(index: a))
+			return .data(data, from: from)
 		}
 	}
 
@@ -469,43 +574,62 @@ final class SimNetwork {
 
 	private func answer(_ edge: Edge, id: Int, accept: Bool) {
 		guard let invite = invites[edge], invite.id == id else { return }	// late, cancelled or replaced
-		invite.timeout.cancel()
+		invite.timeout?.cancel()
 		invites[edge] = nil
 		let (a, b) = (edge.from, edge.to)
+		let (from, target) = (invite.from, invite.target)
 		guard accept else {
-			post(a, after: config.latency) { .state(SimHandle(index: b), .notConnected) }
+			post(a, after: config.latency) { .state(target, .notConnected) }
 			return
 		}
 		let pair = Pair(a, b)
-		if links.removeValue(forKey: pair)?.isConnected == true {	// a fresh invitation replaces an old link silently
+		if let old = links.removeValue(forKey: pair), old.isConnected, !old.isHalfOpen {	// a fresh invitation replaces an old link silently
 			linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: false))
 		}
-		guard sessionPeers(a).count < config.sessionCapacity - 1, sessionPeers(b).count < config.sessionCapacity - 1 else {
+		guard sessionLoad(a) < config.sessionCapacity - 1, sessionLoad(b) < config.sessionCapacity - 1 else {
 			capRefusals += 1
-			post(a, after: config.handshake) { .state(SimHandle(index: b), .notConnected) }
-			post(b, after: config.handshake) { .state(SimHandle(index: a), .notConnected) }
+			post(a, after: config.handshake) { .state(target, .notConnected) }
+			post(b, after: config.handshake) { .state(from, .notConnected) }
 			return
 		}
-		let link = Link()
+		let link = Link(handles: [a: from, b: target])
 		links[pair] = link
-		post(a, after: config.latency) { .state(SimHandle(index: b), .connecting) }
-		post(b) { .state(SimHandle(index: a), .connecting) }
+		post(a, after: config.latency) { .state(target, .connecting) }
+		post(b) { .state(from, .connecting) }
+		if config.halfOpenProbability > 0, Double.random(in: 0 ..< 1, using: &rng) < config.halfOpenProbability {
+			halfOpenLinks += 1
+			link.halfOpenEnd = b
+			link.isBlackholed = true
+			timers.schedule(after: config.handshake) { [unowned self] in
+				guard links[pair] === link else { return }
+				link.isConnected = true
+				post(a) { .state(target, .notConnected) }
+				post(b) { .state(from, .connected) }
+			}
+			return
+		}
 		timers.schedule(after: config.handshake) { [unowned self] in
 			guard links[pair] === link else { return }
 			link.isConnected = true
 			linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: true))
-			post(a) { .state(SimHandle(index: b), .connected) }
-			post(b) { .state(SimHandle(index: a), .connected) }
+			post(a) { .state(target, .connected) }
+			post(b) { .state(from, .connected) }
 		}
 	}
 
+	/// Both sides report `notConnected`; a half-open link only on the side that had it.
 	private func dropLink(_ pair: Pair) {
 		guard let link = links.removeValue(forKey: pair) else { return }
-		if link.isConnected {
+		if link.isConnected, !link.isHalfOpen {
 			linkChanges.append(LinkChange(at: timers.now, a: pair.low, b: pair.high, up: false))
 		}
-		post(pair.low) { .state(SimHandle(index: pair.high), .notConnected) }
-		post(pair.high) { .state(SimHandle(index: pair.low), .notConnected) }
+		for (index, other) in [(pair.low, pair.high), (pair.high, pair.low)] {
+			guard let handle = link.handles[other] else { continue }
+			if let end = link.halfOpenEnd, end != index {
+				continue
+			}
+			post(index) { .state(handle, .notConnected) }
+		}
 	}
 
 	// MARK: - Discovery
@@ -521,17 +645,19 @@ final class SimNetwork {
 			for b in devices.indices where b != a {
 				let edge = Edge(from: a, to: b)
 				if canSee(a, b) {
-					guard !discovered.contains(edge), pendingFound[edge] == nil else { continue }
+					guard discovered[edge] == nil, pendingFound[edge] == nil else { continue }
 					pendingFound[edge] = timers.schedule(after: discoveryDelay()) { [unowned self] in
 						pendingFound[edge] = nil
-						guard canSee(a, b), discovered.insert(edge).inserted else { return }
+						guard canSee(a, b), discovered[edge] == nil else { return }
+						let handle = handle(b)
+						discovered[edge] = handle
 						let radio = devices[a].radio
-						radio.deliver(.found(SimHandle(index: b), discoveryInfo: devices[b].radio.discoveryInfo), run: radio.run)
+						radio.deliver(.found(handle, discoveryInfo: devices[b].radio.discoveryInfo), run: radio.run)
 					}
 				} else {
 					pendingFound.removeValue(forKey: edge)?.cancel()
-					if discovered.remove(edge) != nil {
-						post(a) { .lost(SimHandle(index: b)) }
+					if let handle = discovered.removeValue(forKey: edge) {
+						post(a) { .lost(handle) }
 					}
 				}
 			}
@@ -539,6 +665,23 @@ final class SimNetwork {
 	}
 
 	// MARK: - Helpers
+
+	/// The device's current handle.
+	private func handle(_ index: Int) -> SimHandle {
+		devices[index].radio.localHandle
+	}
+
+	/// Stale session on either side, or bad luck (`hangProbability`).
+	private func hangs(from: SimHandle, to target: SimHandle) -> Bool {
+		let now = timers.now
+		if let until = stale[Remote(index: target.index, handle: from)], until > now {
+			return true
+		}
+		if let until = stale[Remote(index: from.index, handle: target)], until > now {
+			return true
+		}
+		return config.hangProbability > 0 && Double.random(in: 0 ..< 1, using: &rng) < config.hangProbability
+	}
 
 	/// Schedules a callback for the device's current run; `event` is evaluated when due, nil skips it.
 	private func post(_ index: Int, after delay: Duration = .zero, _ event: @escaping @MainActor () -> LinkRadioEvent<SimHandle>?) {

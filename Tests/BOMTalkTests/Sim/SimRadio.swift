@@ -6,9 +6,11 @@
 import Foundation
 @testable import BOMTalk
 
-/// A simulated device on the radio. Stays the same across runs, like an archived `MCPeerID`.
+/// A simulated device on the radio. New on every start like `MPCRadio`'s peer id, or the same for
+/// all runs (`run` 0) like an archived `MCPeerID` (`SimConfig.freshHandles`). The display name stays.
 struct SimHandle: Hashable, Sendable, CustomStringConvertible {
 	let index: Int
+	var run = 0
 
 	var description: String { "d\(index)" }
 }
@@ -25,7 +27,7 @@ enum SimError: Error {
 final class SimRadio: LinkRadio {
 
 	var onEvent: (@MainActor (LinkRadioEvent<SimHandle>) -> Void)?
-	let localHandle: SimHandle
+	private(set) var localHandle: SimHandle
 	unowned let network: SimNetwork
 
 	private(set) var isRunning = false
@@ -50,6 +52,9 @@ final class SimRadio: LinkRadio {
 		guard !isRunning else { return }
 		isRunning = true
 		run += 1
+		if network.config.freshHandles {
+			localHandle = SimHandle(index: index, run: run)
+		}
 		self.discoveryInfo = discoveryInfo
 		network.radioStarted(index)
 	}
@@ -68,17 +73,17 @@ final class SimRadio: LinkRadio {
 
 	func invite(_ handle: SimHandle, context: Data?, timeout: TimeInterval) {
 		guard isRunning else { return }
-		network.invite(from: index, to: handle.index, context: context, timeout: timeout)
+		network.invite(from: index, to: handle, context: context, timeout: timeout)
 	}
 
 	func cancel(_ handle: SimHandle) {
 		guard isRunning else { return }
-		network.cancel(from: index, to: handle.index)
+		network.cancel(from: index, to: handle)
 	}
 
 	func send(_ data: Data, to handle: SimHandle) throws {
 		guard isRunning else { throw SimError.notConnected }
-		try network.send(data, from: index, to: handle.index)
+		try network.send(data, from: index, to: handle)
 	}
 
 	// MARK: - Delivery
