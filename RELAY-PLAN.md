@@ -1,6 +1,6 @@
 # BOMTalk relay – beyond 8 devices
 
-Branch: `feature/relay`. Status: phase 1 (foundations) done; `-autostart` in the Sample.
+Branch: `feature/relay`. Status: phase 1 (foundations) and phase 3 (RelayTransport) done; `-autostart` in the Sample.
 
 ## Problem
 
@@ -212,6 +212,33 @@ optional later add-on for interactive use.
    iPhone 16e connect failure. *Done when* a scripted 3-simulator run reports state without UI.
 3. **RelayTransport** – envelope, hello / link map, routing, dedupe. *Done when* simulator scenarios
    for convergence, multi-hop transfer and relay loss pass.
+   **Done:** `RelayTransport` (decorator over `LinkTransport`, wired in `Talk`'s public init),
+   `RelayEnvelope` / `RelayHello` (`RelayFrame.swift`), `RelayPolicy`, internal `RelaySnapshot`;
+   discovery / invitation key `_g` = relay generation 3 (v2 builds never connect). Sim: transport
+   contract checker on every device, per-link bandwidth, per-device generation, sparse random graphs;
+   `RelayTests` (line, broadcast, ring, split / rejoin, 30 random, blackhole, hop limit, buffer,
+   determinism, mixed generation). Decisions that differ from the text above:
+   - **No message id / dedupe cache in the envelope** (37 bytes: magic, version, type, hop limit,
+     origin, destination). Hellos are deduped by their `(epoch, seq)` version per origin (epoch set at
+     each start, so a restarted device with seq reset wins); data is unicast along routes and needs no
+     dedupe, the hop limit ends transient loops.
+   - **No route pinning.** Routes are recomputed on every map change and each chunk takes the current
+     next hop; `Reassembler` accepts any order. Simpler, and a pinned route over a dead hop would
+     only delay the failure.
+   - **`Transport.send` contract**: one chunk frame plus the relay envelope; `Frame.maxChunkPayload`
+     stays 64 KB.
+   - **Hop limit 8 = at most 8 hops** (IP TTL semantics); routes longer than that are not used and
+     hellos don't travel further. Consequence: the network diameter must stay ≤ 8.
+   - **Link liveness**: a lower-connected neighbour that sent nothing for `helloExpiry` (10 s) no
+     longer counts as linked (stalled link, e.g. a blackholed MPC session), so traffic reroutes. The
+     MPC link itself stays up (phase 4 may want to drop it).
+   - **Tombstones**: an expired entry's version is remembered 30 s, so a late map sync cannot revive
+     it. Hello copies that arrive with a higher hop limit than the first copy are forwarded again,
+     so a slow long path cannot cut the flood short.
+   - **Unknown-origin buffer**: 64 frames per origin, 1 MB total, 5 s, delivered right after the
+     origin's `connected`.
+   - **Talk sees** `found` before `connecting` / `connected` for every device; name and info come from
+     the hello once there is one.
 4. **Link policy** – 6 + 1, admission hook, redundant drop, all stability precautions. *Done when* the
    two-cliques merge and no-flapping scenarios pass.
 5. **Real devices** – cap 2 on 4 devices, verify `cancelConnectPeer`, soak run. *Done when* a 30 min
