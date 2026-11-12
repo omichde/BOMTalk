@@ -130,7 +130,11 @@ enum MPCPolicy {
 	static let watchdogDelay: Duration = .seconds(inviteTimeout + 5)
 	/// The side not inviting waits this long before inviting anyway.
 	static let fallbackDelay: Duration = .seconds(5)
-	static let backoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+	/// Our own invitation younger than this makes an incoming one simultaneous (declined by the
+	/// designated inviter); an older one is stale and gives way to the incoming invitation.
+	static let simultaneousInviteWindow: Duration = .seconds(3)
+	/// Starts at 2 s: right after a disconnect the remote may still be stopping (backgrounded).
+	static let backoff: [Duration] = [.seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
 	/// Bytes that may wait for one peer in `MPCRadio`'s send queue while `MCSession.send` blocks:
 	/// 64 chunks, several times what flow control keeps in flight per peer (`FlowControl.peerWindow`),
 	/// so only a link that stopped moving runs into it.

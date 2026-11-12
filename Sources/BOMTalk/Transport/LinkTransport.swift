@@ -57,7 +57,7 @@ final class LinkTransport<Radio: LinkRadio>: Transport, LinkControl, LinkDebugCo
 		self.bomtalkVersion = bomtalkVersion
 		self.timers = timers
 		invitationContext = InvitationContext(appID: appID, appVersion: protocolVersion, bomtalkVersion: bomtalkVersion, uuid: localID).encoded()
-		machine = MPCPeerMachine(localID: localID, maxPeers: maxPeers)
+		machine = MPCPeerMachine(localID: localID, maxPeers: maxPeers, now: { [timers] in timers.now })
 		localPeer = TransportPeer(id: localID, name: displayName, info: [:])
 		radio.onEvent = { [weak self] event in
 			self?.handle(event)
