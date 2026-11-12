@@ -9,6 +9,7 @@ at tag [`v1.0`](https://github.com/omichde/BOMTalk/tree/v1.0).
 ## Features
 
 - Auto-connecting mesh of nearby devices running the same app (same app id and protocol version)
+- Beyond MultipeerConnectivity's 8 peers: devices further away are relayed hop by hop (see [Relay](#relay))
 - Typed messages: any `Codable` type conforming to `TalkMessage`
 - Send to one peer or broadcast to all connected peers, `async throws`
 - Demand driven: a message is only transferred if the receiver listens to its kind
@@ -131,16 +132,33 @@ stops accepting that kind. Several subscribers share one decoded value.
 
 ## Behaviour notes
 
-- Peers only connect if both app id and protocol version match; others are never listed.
-- At most 8 peers including this device (7 remote), further peers are ignored until a slot frees up.
+- Peers only connect if app id, protocol version and BOMTalk's own protocol version match; others
+  are never listed. This release speaks BOMTalk protocol 3 (relay); v2 devices and this one never
+  see each other, so update all devices of an installation together.
+- No fixed device limit: at most 7 *direct* neighbours per device (MultipeerConnectivity's 8 peers
+  per session), every other device is reached through the relay and listed in `peers` like a direct one.
 - Always encrypted, always reliable.
+- Background traffic: every device floods a small hello (about 60 bytes plus 16 per direct
+  neighbour) every 3 s, with more than 30 devices every `devices × 0.1 s` (at most 15 s), so each
+  link carries roughly 1–3 KB/s of it whatever the network size (simulated). Name and `info` travel
+  only when they change (or when a device missed them and asks); quiet links get a small keepalive
+  every 3 s.
+- A device that vanishes is reported `disconnected` within about 10 s (at once if its neighbours'
+  links drop) and removed (`lost`) 10 s after its last hello, up to 50 s in networks of 150 devices
+  or more.
 - Payloads are binary property lists, lzfse compressed, sent in chunks of up to 64 KB;
   concurrent transfers are interleaved.
-- 30 s timeouts for unanswered offers and stalled incoming transfers.
+- Flow control: the receiver acknowledges every 256 KB, the sender keeps at most 512 KB per
+  transfer and 1 MB per peer (all its transfers together) unacknowledged, so transfers never
+  pile up in a link's queue.
+  `send` returns once the receiver acknowledged everything (it may still fail to decode the
+  message; its `messages` stream reports that).
+- 30 s timeouts for unanswered offers and stalled transfers (incoming: no chunk, outgoing: no
+  acknowledgement). A chunk lost on the way is not resent; both ends fail with `.timeout`.
 - A disconnect during a transfer fails it cleanly (`.peerDisconnected`).
-- Progress: incoming counts received bytes; outgoing counts bytes handed to the network, which
-  MultipeerConnectivity buffers – so the sender usually reaches 100 % well before the receiver.
-  Finished or failed transfers are removed from `transfers`.
+- Progress: incoming counts received bytes; outgoing counts bytes the receiver acknowledged, so
+  both sides progress together (the sender in 256 KB steps). Finished or failed transfers are
+  removed from `transfers`.
 - `start()` / `stop()` are idempotent; `stop()` disconnects and clears `peers`.
 - `info` budget: about 300 bytes for your keys and values (after internal keys). Larger info
   still reaches connected peers but is not advertised during discovery. Set it before `start()`.
@@ -149,10 +167,56 @@ stops accepting that kind. Several subscribers share one decoded value.
 - iOS backgrounding: MultipeerConnectivity drops sessions in the background. Call `stop()` when
   the scene goes to `.background` and `start()` again when `.active` (see the sample app).
 - Identity: each device keeps a stable peer identity in the Keychain (device-only, not in
-  backups), so restored or cloned devices get a new identity.
+  backups), so restored or cloned devices get a new identity. The MultipeerConnectivity peer id
+  is new on every `start()` (other devices may still hold a session with the old one).
 
 - Logging: only problems the API cannot report otherwise (e.g. malformed frames, invalid
   discovery info, keychain failure) via `os.Logger`, subsystem `de.werk01.BOMTalk`.
+
+## Relay
+
+One `MCSession` holds at most 8 peers including this device, and that limit cannot be configured.
+BOMTalk keeps one session per device. That cap becomes each device's number of direct neighbours, and
+everything beyond is reached hop by hop. `Talk` is unchanged: a `Transport` decorator
+(`RelayTransport`) sits between `Talk` and the MultipeerConnectivity transport (`LinkTransport`) and
+reports every reachable device, direct or relayed, as a peer. A side effect: devices out of radio range
+of each other can talk through one in between. There is no hub and no session pool, and
+MultipeerConnectivity's radio handling (Wi-Fi, peer-to-peer Wi-Fi, Bluetooth) stays as it is.
+
+- **Membership**: every device floods a hello with its direct neighbours (see the background traffic
+  note above). Each device keeps the latest hello per device, and so has a map of all links. A link
+  counts only when both ends list each other.
+- **Routing**: shortest path over the map, ties broken by device id, recomputed on every map change
+  (no route pinning; chunks may arrive in any order). Envelope of 37 bytes per frame, hop limit 16,
+  so the network can be at most 16 hops across. Offer / accept stays end to end, so demand-driven
+  accept works across hops. Broadcasts are one unicast per device.
+- **Link policy, 6 + 1**: 6 regular links (first come, first served) plus 1 bridge slot. The bridge
+  slot is only for a device that is visible but unreachable through the map, i.e. in another
+  partition, after 5 s. Once partitions merge, a device with all slots in use drops one redundant
+  neighbour (still reachable without the direct link) to free the bridge slot again.
+- **Damping**: a link is dropped as redundant only when it is at least 30 s old, carried no data
+  for 5 s and the map was stable for 5 s. Each device drops at most one link per 10 s, and only after
+  an `unlink` handshake. Dropped neighbours are not re-invited while reachable (at most 5 min).
+- **Self-heal**: links silent for 15 s are dropped and reconnect with backoff on a fresh session.
+  A watchdog resets the radio when MultipeerConnectivity sessions wedge (invitations that never
+  complete). If a relay dies, its in-flight chunks are lost and the transfer fails with `.timeout`.
+- **Verified** so far in an in-memory network simulator (`Tests/BOMTalkTests/Sim`, up to 150 devices:
+  convergence, two cliques merging, heal, no flapping, hop limit, faults such as hanging invitations
+  and half-open links) and on 8 iOS simulators with the rig (`Sample/Rig`). Build `7b1c824` passed
+  every scenario in one run: converge, cap 2 (7 hops), heal, blob 1.63 MB/s and soaks at caps 3 and 7.
+
+Still open:
+
+- Real devices: cap 2 on 4 devices, `cancelConnectPeer` semantics, Bluetooth vs Wi-Fi, per-hop
+  throughput, and a 30 min soak with faults. Repeat rig runs, since each scenario ran green only once.
+- Blob throughput with the batched `Outbox` drain (1.39 and 1.64 MB/s on the same build, no regression
+  shown).
+- A fresh `MCPeerID` on every start goes against Apple's advice to reuse an archived one. So far there
+  is no evidence against it.
+- Whether a smaller `Frame.maxChunkPayload` should make room for the envelope (now: chunk + envelope).
+- Whether `Talk` should expose relayed peers (`Peer.hops`, `.relayed`).
+- Whether multi-hop throughput for large blobs is enough for the exhibition setups (bounded by 512 KB
+  per round trip over all hops).
 
 ## Known limitations
 
@@ -168,10 +232,16 @@ info, a broadcast chat and large blob transfers with progress, including `.notWa
 receiver does not accept blobs. Run it on two devices in the same network. The project is
 generated from `Sample/project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
+For scripted multi-device runs the Sample has launch arguments (`-autostart`, `-controlPort`,
+`-linkCap`, `-soak`, …) and an HTTP control layer; `Sample/Rig/` drives several simulators with it
+(see its README). The package side is `@_spi(Debug)`: `Talk.debugSnapshot()`, a debug init with a
+link cap and ephemeral identity, a block list. It is not part of the public API.
+
 ## Tests
 
-`swift test` runs a small set of behaviour tests over an in-memory loopback transport, no devices
-or network needed.
+`swift test` runs behaviour tests over an in-memory loopback transport and relay scenarios in an
+in-memory network simulator (virtual clock, visibility graphs, session cap, fault injection), no
+devices or network needed.
 
 ## Migrating from v1
 

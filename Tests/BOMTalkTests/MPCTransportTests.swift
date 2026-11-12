@@ -39,7 +39,7 @@ import Testing
 
 	@Test func invitationContextMismatch() {
 		let uuid = UUID()
-		let data = InvitationContext(appID: appID, version: 1, uuid: uuid).encoded()
+		let data = InvitationContext(appID: appID, appVersion: 1, uuid: uuid).encoded()
 		#expect(InvitationContext.decode(data, appID: appID, protocolVersion: 1) == uuid)
 		#expect(InvitationContext.decode(data, appID: "other.app", protocolVersion: 1) == nil)
 		#expect(InvitationContext.decode(data, appID: appID, protocolVersion: 2) == nil)
@@ -77,7 +77,7 @@ import Testing
 			let second = MPCIdentity.load(appID: appID, displayName: "iPad", defaults: defaults, store: store)
 			#expect(store.uuid == first.uuid)
 			#expect(first.uuid == second.uuid)
-			#expect(first.peerID == second.peerID)
+			#expect(first.displayName == "iPad" && second.displayName == "iPad")
 		}
 	}
 
@@ -88,8 +88,28 @@ import Testing
 			let store = MemoryStore()
 			let restored = MPCIdentity.load(appID: appID, displayName: "iPad", defaults: defaults, store: store)
 			#expect(restored.uuid != original.uuid)
-			#expect(restored.peerID != original.peerID)
-			#expect(MPCIdentity.load(appID: appID, displayName: "iPad", defaults: defaults, store: store).peerID == restored.peerID)
+			#expect(MPCIdentity.load(appID: appID, displayName: "iPad", defaults: defaults, store: store).uuid == restored.uuid)
+		}
+	}
+
+	/// Earlier builds archived an `MCPeerID` next to the UUID; it is no longer used (`MPCRadio` makes a
+	/// fresh one per start) and gets dropped, the UUID stays. Without a Keychain the UserDefaults copy
+	/// keeps the identity.
+	@Test func identityDropsArchivedPeerID() throws {
+		struct FailingStore: MPCUUIDStore {
+			func read() throws -> UUID? { throw NSError(domain: NSOSStatusErrorDomain, code: -34018) }
+			func write(_ uuid: UUID) throws { throw NSError(domain: NSOSStatusErrorDomain, code: -34018) }
+		}
+		try withDefaults { defaults in
+			let uuid = UUID()
+			let store = MemoryStore()
+			store.uuid = uuid
+			defaults.set(["uuid": uuid.uuidString, "peerID": Data([1, 2, 3])], forKey: MPCIdentity.key(appID: appID))
+			let identity = MPCIdentity.load(appID: appID, displayName: "  iPad  ", defaults: defaults, store: store)
+			#expect(identity.uuid == uuid)
+			#expect(identity.displayName == "iPad")
+			#expect(defaults.dictionary(forKey: MPCIdentity.key(appID: appID)) as? [String: String] == ["uuid": uuid.uuidString])
+			#expect(MPCIdentity.load(appID: appID, displayName: "iPad", defaults: defaults, store: FailingStore()).uuid == uuid)
 		}
 	}
 }

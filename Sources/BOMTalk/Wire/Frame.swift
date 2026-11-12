@@ -24,25 +24,36 @@ enum Frame: Sendable, Equatable {
 	case reject(UUID)
 	case chunk(transferID: UUID, index: UInt32, payload: Data)
 	case info([String: String])
+	/// Flow control: the receiver of a transfer has its first `receivedBytes` (see `FlowControl`).
+	case ack(transferID: UUID, receivedBytes: UInt64)
 
 	static let version: UInt8 = 1
 	/// Maximum payload bytes per chunk frame.
 	static let maxChunkPayload = 64 * 1024
 	static let headerSize = 4
 
-	fileprivate static let magic: [UInt8] = [0x42, 0x54]	// "BT"
+	private static let magic: [UInt8] = [0x42, 0x54]	// "BT"
 
-	fileprivate enum TypeCode: UInt8 {
-		case offer = 1, accept, reject, chunk, info
+	private enum TypeCode: UInt8 {
+		case offer = 1, accept, reject, chunk, info, ack
 	}
 
 	// MARK: encoding
+
+	/// A writer with the header already written; `capacity` is the size of the fields following it.
+	private static func writer(_ type: TypeCode, capacity: Int) -> ByteWriter {
+		var writer = ByteWriter(capacity: headerSize + capacity)
+		writer.bytes(magic)
+		writer.uint8(version)
+		writer.uint8(type.rawValue)
+		return writer
+	}
 
 	func encoded() -> Data {
 		switch self {
 		case .offer(let offer):
 			let kind = Data(offer.kind.utf8.prefix(Int(UInt16.max)))
-			var writer = Writer(.offer, capacity: 16 + 2 + kind.count + 8 + 4)
+			var writer = Self.writer(.offer, capacity: 16 + 2 + kind.count + 8 + 4)
 			writer.uuid(offer.transferID)
 			writer.uint16(UInt16(kind.count))
 			writer.data(kind)
@@ -50,15 +61,15 @@ enum Frame: Sendable, Equatable {
 			writer.uint32(offer.chunkCount)
 			return writer.data
 		case .accept(let id):
-			var writer = Writer(.accept, capacity: 16)
+			var writer = Self.writer(.accept, capacity: 16)
 			writer.uuid(id)
 			return writer.data
 		case .reject(let id):
-			var writer = Writer(.reject, capacity: 16)
+			var writer = Self.writer(.reject, capacity: 16)
 			writer.uuid(id)
 			return writer.data
 		case .chunk(let id, let index, let payload):
-			var writer = Writer(.chunk, capacity: 16 + 4 + payload.count)
+			var writer = Self.writer(.chunk, capacity: 16 + 4 + payload.count)
 			writer.uuid(id)
 			writer.uint32(index)
 			writer.data(payload)
@@ -68,8 +79,13 @@ enum Frame: Sendable, Equatable {
 			encoder.outputFormat = .binary
 			// [String: String] always encodes
 			let plist = (try? encoder.encode(info)) ?? Data()
-			var writer = Writer(.info, capacity: plist.count)
+			var writer = Self.writer(.info, capacity: plist.count)
 			writer.data(plist)
+			return writer.data
+		case .ack(let id, let receivedBytes):
+			var writer = Self.writer(.ack, capacity: 16 + 8)
+			writer.uuid(id)
+			writer.uint64(receivedBytes)
 			return writer.data
 		}
 	}
@@ -78,7 +94,7 @@ enum Frame: Sendable, Equatable {
 
 	/// Returns nil for malformed or unsupported data.
 	init?(_ data: Data) {
-		var reader = Reader(data)
+		var reader = ByteReader(data)
 		guard reader.bytes(2).map(Array.init) == Self.magic,
 			reader.uint8() == Self.version,
 			let code = reader.uint8().flatMap(TypeCode.init(rawValue:))
@@ -109,21 +125,21 @@ enum Frame: Sendable, Equatable {
 		case .info:
 			guard let info = try? PropertyListDecoder().decode([String: String].self, from: reader.rest()) else { return nil }
 			self = .info(info)
+		case .ack:
+			guard let id = reader.uuid(), let receivedBytes = reader.uint64(), reader.isAtEnd else { return nil }
+			self = .ack(transferID: id, receivedBytes: receivedBytes)
 		}
 	}
 }
 
 // MARK: - byte helpers
 
-private struct Writer {
+/// Big-endian integers, raw UUIDs. Shared by `Frame` and the relay's wire formats.
+struct ByteWriter {
 	private(set) var data: Data
 
-	/// Writes the header; `capacity` is the size of the fields following it.
-	init(_ type: Frame.TypeCode, capacity: Int) {
-		data = Data(capacity: Frame.headerSize + capacity)
-		bytes(Frame.magic)
-		uint8(Frame.version)
-		uint8(type.rawValue)
+	init(capacity: Int) {
+		data = Data(capacity: capacity)
 	}
 
 	mutating func bytes(_ bytes: [UInt8]) { data.append(contentsOf: bytes) }
@@ -139,7 +155,7 @@ private struct Writer {
 	}
 }
 
-private struct Reader {
+struct ByteReader {
 	private let data: Data
 	private var offset: Data.Index
 

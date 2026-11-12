@@ -28,3 +28,13 @@ struct Blob: TalkMessage {
 		}.value
 	}
 }
+
+/// Numbered ping of a soak run, broadcast to all peers: receivers track what arrives per origin.
+struct SoakPing: TalkMessage {
+	static let kind = "soak-ping"
+	/// Label of the sending instance.
+	var origin: String
+	var seq: Int
+	/// Seconds since 1970 at the sender (simulators and instances on one Mac share the clock).
+	var sentAt: Double
+}

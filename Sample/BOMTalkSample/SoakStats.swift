@@ -1,0 +1,139 @@
+//
+//  SoakStats.swift
+//  BOMTalkSample
+//
+
+import Foundation
+
+/// What arrived from one origin of numbered pings: counts, ordering problems, gaps and latency.
+/// Pure value logic, `ControlCenter` feeds it. Encodes with `gaps` and the average computed.
+struct OriginStats: Encodable, Equatable, Sendable {
+
+	/// Arrivals, duplicates included.
+	private(set) var received = 0
+	/// Arrivals of a sequence number seen before.
+	private(set) var duplicates = 0
+	/// First arrivals of a number below the highest seen so far.
+	private(set) var outOfOrder = 0
+	/// Numbers between the first and the highest seen that never arrived (yet).
+	var gaps: Int { unique == 0 ? 0 : max(0, lastSeq - firstSeq + 1 - unique) }
+	private(set) var firstSeq = 0
+	/// Highest sequence number seen.
+	private(set) var lastSeq = 0
+	private(set) var latencyMinMs = 0.0
+	private(set) var latencyMaxMs = 0.0
+	var latencyAvgMs: Double { unique == 0 ? 0 : latencySum / Double(unique) }
+	/// Seconds since 1970 of the last arrival.
+	private(set) var lastReceivedAt = 0.0
+
+	/// Distinct sequence numbers seen.
+	private(set) var unique = 0
+	private var latencySum = 0.0
+	private var seen: Set<Int> = []
+
+	/// Numbers older than this behind the highest are forgotten (a duplicate of one counts as new).
+	static let window = 4096
+	/// At most this many missing numbers are reported (the rig excuses those sent while the receiver
+	/// was dark or just restarted).
+	static let maxMissing = 2048
+
+	/// Numbers between the first and the highest seen that never arrived (yet), oldest first, at most
+	/// `maxMissing`, within the window.
+	var missing: [Int] {
+		guard unique > 0 else { return [] }
+		let low = max(firstSeq, lastSeq - Self.window + 1)
+		return Array((low ... lastSeq).lazy.filter { !seen.contains($0) }.prefix(Self.maxMissing))
+	}
+
+	enum CodingKeys: String, CodingKey {
+		case received, unique, duplicates, outOfOrder, gaps, missing, firstSeq, lastSeq, latencyMinMs, latencyAvgMs, latencyMaxMs, lastReceivedAt
+	}
+
+	func encode(to encoder: any Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		try c.encode(received, forKey: .received)
+		try c.encode(unique, forKey: .unique)
+		try c.encode(duplicates, forKey: .duplicates)
+		try c.encode(outOfOrder, forKey: .outOfOrder)
+		try c.encode(gaps, forKey: .gaps)
+		try c.encode(missing, forKey: .missing)
+		try c.encode(firstSeq, forKey: .firstSeq)
+		try c.encode(lastSeq, forKey: .lastSeq)
+		try c.encode(latencyMinMs, forKey: .latencyMinMs)
+		try c.encode(latencyAvgMs, forKey: .latencyAvgMs)
+		try c.encode(latencyMaxMs, forKey: .latencyMaxMs)
+		try c.encode(lastReceivedAt, forKey: .lastReceivedAt)
+	}
+
+	mutating func record(seq: Int, sentAt: Double, receivedAt: Double) {
+		received += 1
+		lastReceivedAt = receivedAt
+		if seen.contains(seq) {
+			duplicates += 1
+			return
+		}
+		let latency = max(0, (receivedAt - sentAt) * 1000)
+		if unique == 0 {
+			firstSeq = seq
+			lastSeq = seq
+			latencyMinMs = latency
+			latencyMaxMs = latency
+		} else {
+			if seq < lastSeq {
+				outOfOrder += 1
+			}
+			firstSeq = min(firstSeq, seq)
+			lastSeq = max(lastSeq, seq)
+			latencyMinMs = min(latencyMinMs, latency)
+			latencyMaxMs = max(latencyMaxMs, latency)
+		}
+		unique += 1
+		latencySum += latency
+		seen.insert(seq)
+		if seen.count > Self.window * 2 {
+			seen = seen.filter { $0 > lastSeq - Self.window }
+		}
+	}
+}
+
+/// Delays of a main actor timer beyond its interval: how long the main actor was busy (or the app
+/// not scheduled at all). Pure value logic, `MainActorProbe` feeds it.
+struct LagStats: Encodable, Equatable, Sendable {
+
+	private(set) var samples = 0
+	private(set) var lastMs = 0.0
+	private(set) var maxMs = 0.0
+	/// Samples at or above 250 ms and 1 s.
+	private(set) var over250ms = 0
+	private(set) var over1s = 0
+	private var sumMs = 0.0
+	var avgMs: Double { samples == 0 ? 0 : sumMs / Double(samples) }
+
+	enum CodingKeys: String, CodingKey {
+		case samples, lastMs, avgMs, maxMs, over250ms, over1s
+	}
+
+	func encode(to encoder: any Encoder) throws {
+		var c = encoder.container(keyedBy: CodingKeys.self)
+		try c.encode(samples, forKey: .samples)
+		try c.encode((lastMs * 10).rounded() / 10, forKey: .lastMs)
+		try c.encode((avgMs * 10).rounded() / 10, forKey: .avgMs)
+		try c.encode((maxMs * 10).rounded() / 10, forKey: .maxMs)
+		try c.encode(over250ms, forKey: .over250ms)
+		try c.encode(over1s, forKey: .over1s)
+	}
+
+	mutating func record(_ lagMs: Double) {
+		let lag = max(0, lagMs)
+		samples += 1
+		lastMs = lag
+		maxMs = max(maxMs, lag)
+		sumMs += lag
+		if lag >= 250 {
+			over250ms += 1
+		}
+		if lag >= 1000 {
+			over1s += 1
+		}
+	}
+}

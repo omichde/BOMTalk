@@ -2,3 +2,5 @@
 .swiftpm/
 Sample/*.xcodeproj/xcuserdata/
 Sample/build/
+Sample/Rig/out/
+__pycache__/

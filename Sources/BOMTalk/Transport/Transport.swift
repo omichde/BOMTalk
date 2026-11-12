@@ -46,6 +46,7 @@ protocol Transport: AnyObject {
 	func stop()
 	/// Updates the advertised host info (restarts advertising if running).
 	func update(info: [String: String])
-	/// Sends data reliably to a connected peer. Data is at most one chunk frame (header + `Frame.maxChunkPayload`).
+	/// Sends data reliably to a connected peer. Data is at most one chunk frame (header +
+	/// `Frame.maxChunkPayload`) plus the relay envelope (`RelayEnvelope.headerSize`).
 	func send(_ data: Data, to peer: UUID) throws(TalkError)
 }
