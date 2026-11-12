@@ -9,6 +9,7 @@ at tag [`v1.0`](https://github.com/omichde/BOMTalk/tree/v1.0).
 ## Features
 
 - Auto-connecting mesh of nearby devices running the same app (same app id and protocol version)
+- Beyond MultipeerConnectivity's 8 peers: devices further away are relayed hop by hop (see [Relay](#relay))
 - Typed messages: any `Codable` type conforming to `TalkMessage`
 - Send to one peer or broadcast to all connected peers, `async throws`
 - Demand driven: a message is only transferred if the receiver listens to its kind
@@ -134,7 +135,8 @@ stops accepting that kind. Several subscribers share one decoded value.
 - Peers only connect if app id, protocol version and BOMTalk's own protocol version match; others
   are never listed. This release speaks BOMTalk protocol 3 (relay); v2 devices and this one never
   see each other, so update all devices of an installation together.
-- At most 8 peers including this device (7 remote), further peers are ignored until a slot frees up.
+- No fixed device limit: at most 7 *direct* neighbours per device (MultipeerConnectivity's 8 peers
+  per session), every other device is reached through the relay and listed in `peers` like a direct one.
 - Always encrypted, always reliable.
 - Background traffic: every device floods a small hello (about 60 bytes plus 16 per direct
   neighbour) every 3 s, with more than 30 devices every `devices × 0.1 s` (at most 15 s), so each
@@ -171,6 +173,51 @@ stops accepting that kind. Several subscribers share one decoded value.
 - Logging: only problems the API cannot report otherwise (e.g. malformed frames, invalid
   discovery info, keychain failure) via `os.Logger`, subsystem `de.werk01.BOMTalk`.
 
+## Relay
+
+One `MCSession` holds at most 8 peers including this device, and that limit cannot be configured.
+BOMTalk keeps one session per device. That cap becomes each device's number of direct neighbours, and
+everything beyond is reached hop by hop. `Talk` is unchanged: a `Transport` decorator
+(`RelayTransport`) sits between `Talk` and the MultipeerConnectivity transport (`LinkTransport`) and
+reports every reachable device, direct or relayed, as a peer. A side effect: devices out of radio range
+of each other can talk through one in between. There is no hub and no session pool, and
+MultipeerConnectivity's radio handling (Wi-Fi, peer-to-peer Wi-Fi, Bluetooth) stays as it is.
+
+- **Membership**: every device floods a hello with its direct neighbours (see the background traffic
+  note above). Each device keeps the latest hello per device, and so has a map of all links. A link
+  counts only when both ends list each other.
+- **Routing**: shortest path over the map, ties broken by device id, recomputed on every map change
+  (no route pinning; chunks may arrive in any order). Envelope of 37 bytes per frame, hop limit 16,
+  so the network can be at most 16 hops across. Offer / accept stays end to end, so demand-driven
+  accept works across hops. Broadcasts are one unicast per device.
+- **Link policy, 6 + 1**: 6 regular links (first come, first served) plus 1 bridge slot. The bridge
+  slot is only for a device that is visible but unreachable through the map, i.e. in another
+  partition, after 5 s. Once partitions merge, a device with all slots in use drops one redundant
+  neighbour (still reachable without the direct link) to free the bridge slot again.
+- **Damping**: a link is dropped as redundant only when it is at least 30 s old, carried no data
+  for 5 s and the map was stable for 5 s. Each device drops at most one link per 10 s, and only after
+  an `unlink` handshake. Dropped neighbours are not re-invited while reachable (at most 5 min).
+- **Self-heal**: links silent for 15 s are dropped and reconnect with backoff on a fresh session.
+  A watchdog resets the radio when MultipeerConnectivity sessions wedge (invitations that never
+  complete). If a relay dies, its in-flight chunks are lost and the transfer fails with `.timeout`.
+- **Verified** so far in an in-memory network simulator (`Tests/BOMTalkTests/Sim`, up to 150 devices:
+  convergence, two cliques merging, heal, no flapping, hop limit, faults such as hanging invitations
+  and half-open links) and on 8 iOS simulators with the rig (`Sample/Rig`). Build `7b1c824` passed
+  every scenario in one run: converge, cap 2 (7 hops), heal, blob 1.63 MB/s and soaks at caps 3 and 7.
+
+Still open:
+
+- Real devices: cap 2 on 4 devices, `cancelConnectPeer` semantics, Bluetooth vs Wi-Fi, per-hop
+  throughput, and a 30 min soak with faults. Repeat rig runs, since each scenario ran green only once.
+- Blob throughput with the batched `Outbox` drain (1.39 and 1.64 MB/s on the same build, no regression
+  shown).
+- A fresh `MCPeerID` on every start goes against Apple's advice to reuse an archived one. So far there
+  is no evidence against it.
+- Whether a smaller `Frame.maxChunkPayload` should make room for the envelope (now: chunk + envelope).
+- Whether `Talk` should expose relayed peers (`Peer.hops`, `.relayed`).
+- Whether multi-hop throughput for large blobs is enough for the exhibition setups (bounded by 512 KB
+  per round trip over all hops).
+
 ## Known limitations
 
 - No cancel or resume of transfers.
@@ -192,8 +239,9 @@ link cap and ephemeral identity, a block list. It is not part of the public API.
 
 ## Tests
 
-`swift test` runs a small set of behaviour tests over an in-memory loopback transport, no devices
-or network needed.
+`swift test` runs behaviour tests over an in-memory loopback transport and relay scenarios in an
+in-memory network simulator (virtual clock, visibility graphs, session cap, fault injection), no
+devices or network needed.
 
 ## Migrating from v1
 

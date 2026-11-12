@@ -125,6 +125,6 @@ Bad requests get 400, unknown paths 404, wrong methods 405.
   `--terminate-timeout` (10 s), then kills the app's process (pid from `simctl spawn <udid> launchctl
   list`) and relies on `simctl launch --terminate-running-process`; a hanging terminate never fails
   a scenario.
-- Findings of 2026-11-01 (see `RELAY-PLAN.md`): an iPhone 16e simulator once never connected (MPC
+- Findings of 2026-11-01: an iPhone 16e simulator once never connected (MPC
   `Timed out, enforcing clean up`); if a scenario fails to converge on one instance only, look at
   its `events-*.jsonl` first.

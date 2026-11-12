@@ -7,7 +7,7 @@ import Foundation
 import Testing
 @testable import BOMTalk
 
-/// Wedged sessions (RELAY-PLAN.md, "Findings from simulator rig runs", second round): a device
+/// Wedged sessions (simulator rig runs, 2026-11-02): a device
 /// whose attempts with everyone hang recovers by resetting its radio (`RadioHealth`), and healthy
 /// networks never reset.
 @Suite(.serialized) @MainActor struct RadioResetTests {

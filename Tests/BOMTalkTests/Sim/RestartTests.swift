@@ -7,7 +7,7 @@ import Foundation
 import Testing
 @testable import BOMTalk
 
-/// Failure modes found in simulator rig runs (RELAY-PLAN.md, "Findings from simulator rig runs"):
+/// Failure modes found in simulator rig runs (2026-11-02):
 /// devices that stop and start again ("dark") while MPC on their former neighbours still holds the
 /// old session, invitations that hang, half-open links, small link caps.
 @Suite(.serialized) @MainActor struct RestartTests {

@@ -14,7 +14,7 @@ import Security
 ///
 /// The `MCPeerID` is not part of it: `MPCRadio` creates a fresh one on every start. Remote MPC stacks
 /// notice an abrupt loss late and keep the old session for that peer id meanwhile; invitations with
-/// a reused one hung until they cleaned up (simulator rig runs, RELAY-PLAN.md). Devices are identified
+/// a reused one hung until they cleaned up (simulator rig runs, 2026-11). Devices are identified
 /// by the UUID in the discovery info, so a new peer id per start costs nothing.
 struct MPCIdentity {
 
